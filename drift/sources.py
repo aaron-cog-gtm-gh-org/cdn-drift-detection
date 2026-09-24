@@ -55,6 +55,7 @@ class ApiSource:
         self.cf = httpx.Client(base_url=cloudflare_base, timeout=10,
                                headers={"Authorization": f"Bearer {token}"})
         self._meta = None
+        self.last_url = None  # path of the most recent request, for display
 
     def discover(self):
         """Resolve domain -> propertyId/version, zoneId, appsec configId once."""
@@ -84,33 +85,39 @@ class ApiSource:
         m = self.meta[domain]
         if provider == "akamai":
             if fixture_name == "rules":
-                r = self.ak.get(f"/papi/v1/properties/{m['property_id']}"
-                                f"/versions/{m['version']}/rules")
+                path = (f"/papi/v1/properties/{m['property_id']}"
+                        f"/versions/{m['version']}/rules")
             elif fixture_name == "hostnames":
-                r = self.ak.get(f"/papi/v1/properties/{m['property_id']}"
-                                f"/versions/{m['version']}/hostnames")
+                path = (f"/papi/v1/properties/{m['property_id']}"
+                        f"/versions/{m['version']}/hostnames")
             elif fixture_name == "appsec":
-                r = self.ak.get(f"/appsec/v1/export/configs/{m['config_id']}"
-                                f"/versions/{m['config_version']}")
+                path = (f"/appsec/v1/export/configs/{m['config_id']}"
+                        f"/versions/{m['config_version']}")
             else:
                 raise KeyError(fixture_name)
+            self.last_url = path
+            r = self.ak.get(path)
             r.raise_for_status()
             return r.json()
         zid = m["zone_id"]
         if fixture_name == "zone":
+            self.last_url = f"/client/v4/zones/{zid}"
             r = self.cf.get(f"/client/v4/zones/{zid}")
             r.raise_for_status()
             return {"success": True, "errors": [], "messages": [], "result": r.json()["result"]}
         if fixture_name == "settings":
+            self.last_url = f"/client/v4/zones/{zid}/settings"
             r = self.cf.get(f"/client/v4/zones/{zid}/settings")
             r.raise_for_status()
             return r.json()
         if fixture_name == "rulesets":
+            self.last_url = f"/client/v4/zones/{zid}/rulesets"
             r = self.cf.get(f"/client/v4/zones/{zid}/rulesets")
             r.raise_for_status()
             listing = r.json()["result"]
             full = []
             for rs in listing:
+                self.last_url = f"/client/v4/zones/{zid}/rulesets/{rs['id']}"
                 d = self.cf.get(f"/client/v4/zones/{zid}/rulesets/{rs['id']}")
                 d.raise_for_status()
                 full.append(d.json()["result"])
@@ -118,6 +125,8 @@ class ApiSource:
         if fixture_name == "dns_records":
             page, items, info = 1, [], None
             while True:
+                self.last_url = (f"/client/v4/zones/{zid}/dns_records"
+                                 f"?page={page}&per_page=100")
                 r = self.cf.get(f"/client/v4/zones/{zid}/dns_records",
                                 params={"page": page, "per_page": 100})
                 r.raise_for_status()

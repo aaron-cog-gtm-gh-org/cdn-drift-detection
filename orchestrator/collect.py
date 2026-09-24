@@ -18,37 +18,54 @@ def _result(doc):
     return doc["result"] if isinstance(doc, dict) and "result" in doc else doc
 
 
-def collect_domain(source, domain):
-    """Fetch the full provider bundle for one domain via the simulator APIs."""
+def _fetch(source, provider, kind, domain, on_fetch):
+    doc = source.get(provider, kind, domain)
+    if on_fetch:
+        on_fetch(provider, kind, domain, getattr(source, "last_url", None))
+    return _result(doc)
+
+
+def collect_akamai(source, domain, on_fetch=None):
+    """Akamai side of a domain bundle — property, rules, hostnames, appsec."""
     appsec = None
     if source.meta[domain].get("config_id") is not None:
-        appsec = _result(source.get("akamai", "appsec", domain))
-    rulesets = _result(source.get("cloudflare", "rulesets", domain))
+        appsec = _fetch(source, "akamai", "appsec", domain, on_fetch)
     return {
-        "akamai": {
-            "property": {
-                "propertyId": source.meta[domain]["property_id"],
-                "latestVersion": source.meta[domain]["version"],
-                "propertyName": domain,
-            },
-            "rules": _result(source.get("akamai", "rules", domain)),
-            "hostnames": _result(source.get("akamai", "hostnames", domain)),
-            "appsec": appsec,
+        "property": {
+            "propertyId": source.meta[domain]["property_id"],
+            "latestVersion": source.meta[domain]["version"],
+            "propertyName": domain,
         },
-        "cloudflare": {
-            "zone": _result(source.get("cloudflare", "zone", domain)),
-            "settings": _result(source.get("cloudflare", "settings", domain)),
-            "rulesets": rulesets,
-            "dns_records": _result(source.get("cloudflare", "dns_records", domain)),
-        },
+        "rules": _fetch(source, "akamai", "rules", domain, on_fetch),
+        "hostnames": _fetch(source, "akamai", "hostnames", domain, on_fetch),
+        "appsec": appsec,
+    }
+
+
+def collect_cloudflare(source, domain, on_fetch=None):
+    """Cloudflare side of a domain bundle — zone, settings, rulesets, DNS."""
+    return {
+        "zone": _fetch(source, "cloudflare", "zone", domain, on_fetch),
+        "settings": _fetch(source, "cloudflare", "settings", domain, on_fetch),
+        "rulesets": _fetch(source, "cloudflare", "rulesets", domain, on_fetch),
+        "dns_records": _fetch(source, "cloudflare", "dns_records", domain,
+                              on_fetch),
+    }
+
+
+def collect_domain(source, domain, on_fetch=None):
+    """Fetch the full provider bundle for one domain via the simulator APIs."""
+    return {
+        "akamai": collect_akamai(source, domain, on_fetch),
+        "cloudflare": collect_cloudflare(source, domain, on_fetch),
     }
 
 
 def collect_all(source=None, domains=None, akamai_base=None,
-                cloudflare_base=None):
+                cloudflare_base=None, on_fetch=None):
     source = source or ApiSource(akamai_base, cloudflare_base)
     domains = domains or DOMAINS
-    return {d: collect_domain(source, d) for d in domains}
+    return {d: collect_domain(source, d, on_fetch) for d in domains}
 
 
 def _dump(path, obj):

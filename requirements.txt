@@ -4,3 +4,4 @@ httpx==0.28.1
 pytest==9.1.1
 pyyaml==6.0.3
 jsonpath-ng==1.8.0
+rich>=13.7,<15

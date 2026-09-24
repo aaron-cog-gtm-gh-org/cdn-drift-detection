@@ -1,14 +1,14 @@
 """One detection session per domain, end to end.
 
   python -m orchestrator.run_detection \
-      [--domain D ...] [--dry-run] [--max-acu 10] [--devin-mode normal] \
-      [--no-remediate] [--poll-interval 20]
+      [--domain D ...] [--dry-run] [--demo|--plain] [--max-acu 10] \
+      [--devin-mode normal] [--no-remediate] [--poll-interval 20]
 
 Flow: collect provider bundles over the simulator APIs -> write
 `artifacts/<run_id>/` -> upload both bundles per domain -> create all
 detection sessions up front (so they run in parallel) -> poll them all to a
 terminal state -> validate each session's structured output against
-DETECTION_SCHEMA locally -> print the findings table, save the reports under
+DETECTION_SCHEMA locally -> report findings, save the reports under
 `artifacts/<run_id>/detection/` -> hand findings to `remediate` unless
 `--no-remediate`.
 
@@ -16,18 +16,24 @@ DETECTION_SCHEMA locally -> print the findings table, save the reports under
 no sessions — it prints the exact prompts and the schema so the substitution
 can be eyeballed before spending ACUs.
 
+Output goes through a reporter (orchestrator/console.py): `--demo` forces the
+rich rendering, `--plain` the original flat text, default is rich iff stdout
+is a tty. One pipeline either way.
+
 Tests never call this against the real API; the one live run is manual.
 """
 import argparse
 import json
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from drift.sources import DOMAINS
+from drift.sources import ApiSource, DOMAINS
 from orchestrator import collect, config
+from orchestrator.console import make_reporter
 from orchestrator.devin_client import DevinClient
 from orchestrator.prompts import DETECTION_PROMPT, DOMAIN_ROLES
 from orchestrator.remediate import execute_remediation, plan_remediation
@@ -118,18 +124,7 @@ def validate_report(domain, report):
     return errors
 
 
-# ---------------- findings table ----------------
-
-
-def print_findings(domain, report):
-    print(f"\n== {domain} — verdict: {report['verdict']} "
-          f"({report['summary']['findings_total']} findings, "
-          f"{report['summary']['fields_compared']} fields compared) ==")
-    for f in report["findings"]:
-        print(f"  {f['severity']:9s} {f['provider']:10s} {f['field']:36s} "
-              f"{f['equivalence']:22s} -> {f['remediation_route']}")
-    for e in report.get("equivalent_but_different", []):
-        print(f"  ~equiv    {e['provider']:10s} {e['field']}")
+# ---------------- main ----------------
 
 
 def main(argv=None):
@@ -138,6 +133,8 @@ def main(argv=None):
                     help="audit only these domains (default: all four)")
     ap.add_argument("--dry-run", action="store_true",
                     help="collect + render prompts; upload nothing, create no sessions")
+    ap.add_argument("--demo", action="store_true", help="rich output")
+    ap.add_argument("--plain", action="store_true", help="plain output")
     ap.add_argument("--max-acu", type=int, default=config.MAX_ACU_LIMIT)
     ap.add_argument("--devin-mode", default=config.DEVIN_MODE)
     ap.add_argument("--no-remediate", action="store_true")
@@ -146,43 +143,66 @@ def main(argv=None):
     ap.add_argument("--cloudflare-base", default=config.SIM_CLOUDFLARE_BASE)
     args = ap.parse_args(argv)
 
+    out = make_reporter(demo=args.demo, plain=args.plain)
+    total = 9
+
     domains = args.domain or DOMAINS
     rid = config.run_id()
-    golden_shas, mapping_version = golden_info(domains)
-    print(f"run {rid} — domains: {', '.join(domains)}")
-    for d in domains:
-        print(f"  {d}: golden_sha={golden_shas[d][:12]}")
-    print(f"mapping_version={mapping_version}")
 
-    bundles = collect.collect_all(domains=domains,
-                                  akamai_base=args.akamai_base,
-                                  cloudflare_base=args.cloudflare_base)
+    # [1/9] golden state
+    golden_shas, mapping_version = golden_info(domains)
+    out.phase(1, total, "Golden state")
+    out.step(f"run {rid} — domains: {', '.join(domains)}")
+    for d in domains:
+        out.step(f"  {d}: golden_sha={golden_shas[d][:12]}")
+    out.step(f"mapping_version={mapping_version}")
+
+    # [2/9] + [3/9] pull provider configs (fetch lines via on_fetch)
+    source = ApiSource(args.akamai_base, args.cloudflare_base)
+    bundles = {}
+    out.phase(2, total, "Pulling Akamai configs")
+    for d in domains:
+        bundles[d] = {"akamai": collect.collect_akamai(source, d, out.fetch)}
+    out.phase(3, total, "Pulling Cloudflare configs")
+    for d in domains:
+        bundles[d]["cloudflare"] = collect.collect_cloudflare(source, d,
+                                                              out.fetch)
+
+    # [4/9] write bundles
+    out.phase(4, total, "Writing provider bundles",
+              subtitle=str(config.ARTIFACTS_DIR / rid))
     manifest = collect.write_bundles(rid, bundles, golden_shas,
                                      mapping_version, config.ARTIFACTS_DIR)
     manifest["sim_bases"] = {"akamai": args.akamai_base,
                              "cloudflare": args.cloudflare_base}
+    for d in domains:
+        for side in ("akamai", "cloudflare"):
+            p = manifest["files"][d][side]["path"]
+            out.artifact(Path(p).name, p,
+                         sha=manifest["files"][d][side]["sha256"],
+                         nbytes=os.path.getsize(p))
     prompts = {d: render_prompt(d, golden_shas[d], mapping_version, manifest)
                for d in domains}
 
     if args.dry_run:
-        print("\n--- structured output schema ---")
-        print(json.dumps(DETECTION_SCHEMA, indent=2))
+        out.schema_block(DETECTION_SCHEMA)
         for d in domains:
-            print(f"\n--- detection prompt: {d} ---")
-            print(prompts[d])
-        print("\n(dry run — nothing uploaded, no sessions created)")
+            out.prompt_block(d, prompts[d])
+        out.step("\n(dry run — nothing uploaded, no sessions created)")
         return 0
 
     client = DevinClient(config.DEVIN_BASE_URL, config.DEVIN_ORG_ID,
                          config.get_token())
 
-    # upload both bundles per domain first; sessions reference the URLs
+    # [5/9] upload
+    out.phase(5, total, "Uploading to Devin")
     urls = {}
     for d in domains:
         urls[d] = []
         for side in ("akamai", "cloudflare"):
-            urls[d].append(client.upload_attachment(
-                manifest["files"][d][side]["path"]))
+            path = manifest["files"][d][side]["path"]
+            urls[d].append(client.upload_attachment(path))
+            out.artifact(f"{Path(path).name} →", urls[d][-1])
     manifest_path = config.ARTIFACTS_DIR / rid / "manifest.json"
     m = json.loads(manifest_path.read_text())
     for d in domains:
@@ -190,7 +210,8 @@ def main(argv=None):
             m["files"][d][side]["attachment_url"] = urls[d][i]
     manifest_path.write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
 
-    # create all sessions up front so they run in parallel
+    # [6/9] create detection sessions
+    out.phase(6, total, "Creating detection sessions")
     sessions = {}
     for d in domains:
         body = client.create_session(
@@ -201,36 +222,46 @@ def main(argv=None):
             structured_output_required=True,
             max_acu_limit=args.max_acu, devin_mode=args.devin_mode)
         sessions[d] = body["session_id"]
-        print(f"  created {d}: {sessions[d]}")
+        out.session_created(d, sessions[d], config.session_url(sessions[d]))
 
+    # [7/9] sessions working — live table in demo mode, stderr ticks in plain
+    out.phase(7, total, "Sessions working")
     def poll(d):
         return d, client.poll_session(
             sessions[d], interval=args.poll_interval,
             timeout=config.POLL_TIMEOUT_S,
-            on_tick=lambda b: print(f"    {d}: {b.get('status')}",
-                                    file=sys.stderr))
+            on_tick=lambda b: out.session_status(
+                d, b.get("status"), b.get("acus_consumed")))
 
     reports = {}
     det_dir = config.ARTIFACTS_DIR / rid / "detection"
     det_dir.mkdir(parents=True, exist_ok=True)
     bad = []
-    with ThreadPoolExecutor(max_workers=len(domains)) as ex:
-        for d, body in ex.map(poll, domains):
-            report = body.get("structured_output")
-            if not isinstance(report, dict):
-                bad.append(f"{d}: session ended without structured output "
-                           f"(status={body.get('status')})")
-                continue
-            errs = validate_report(d, report)
-            bad.extend(errs)
-            reports[d] = report
-            (det_dir / f"{d}.json").write_text(
-                json.dumps(report, indent=2, sort_keys=True) + "\n")
-            print_findings(d, report)
+    # [8/9] findings — reports validated + rendered as polls finish
+    with out.sessions_live():
+        with ThreadPoolExecutor(max_workers=len(domains)) as ex:
+            for d, body in ex.map(poll, domains):
+                report = body.get("structured_output")
+                if not isinstance(report, dict):
+                    bad.append(f"{d}: session ended without structured output "
+                               f"(status={body.get('status')})")
+                    continue
+                errs = validate_report(d, report)
+                bad.extend(errs)
+                reports[d] = report
+                (det_dir / f"{d}.json").write_text(
+                    json.dumps(report, indent=2, sort_keys=True) + "\n")
+    out.phase(8, total, "Findings")
+    for d in domains:
+        if d in reports:
+            out.findings(d, reports[d])
+            out.equivalences(d, reports[d])
     for msg in bad:
-        print(f"SCHEMA: {msg}", file=sys.stderr)
+        out.error(f"SCHEMA: {msg}")
 
+    # [9/9] remediation routing
     if not args.no_remediate:
+        out.phase(9, total, "Remediation routing")
         parent_ids = {d: sessions[d] for d in reports}
         plans = [plan_remediation(reports[d], rid, config.GOLDEN_BRANCH)
                  for d in reports]
@@ -238,15 +269,17 @@ def main(argv=None):
                 plans, client, repo=config.REPO_SLUG,
                 max_acu_limit=args.max_acu, devin_mode=args.devin_mode,
                 parent_ids=parent_ids):
-            print(f"  remediation {created['route']} for {created['domain']}: "
-                  f"{created['session'].get('session_id')}")
+            out.remediation(created["route"], created["domain"],
+                            created["session"].get("session_id"),
+                            config.session_url(
+                                created["session"].get("session_id")))
         for plan in plans:
             for df in plan["deferred"]:
-                print(f"  deferred ({df['note']}): {plan['domain']} "
-                      f"{df['field']}")
+                out.deferred(plan["domain"], df["field"], df["note"])
             if plan["skipped"]:
-                print(f"  remediation skipped for {plan['domain']}: "
-                      f"verdict inconclusive")
+                out.warn(f"  remediation skipped for {plan['domain']}: "
+                         f"verdict inconclusive")
+    out.summary(rid, reports, str(config.ARTIFACTS_DIR / rid))
     return 1 if bad else 0
 
 

@@ -31,6 +31,11 @@ MAX_ACU_LIMIT = 10
 DEVIN_MODE = "normal"
 
 
+def session_url(session_id):
+    """The URL an audience member can open to watch a session."""
+    return f"https://test-aaron.devinenterprise.com/sessions/{session_id}"
+
+
 def get_token():
     """The service-user token, from the environment only. Never printed."""
     token = os.environ.get(TOKEN_ENV)
