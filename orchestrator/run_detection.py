@@ -162,11 +162,14 @@ def main(argv=None):
     ap.add_argument("--devin-mode", default=config.DEVIN_MODE)
     ap.add_argument("--no-remediate", action="store_true")
     ap.add_argument("--poll-interval", type=int, default=config.POLL_INTERVAL_S)
+    ap.add_argument("--pace", type=float, default=None,
+                    help="seconds to pause between demo steps "
+                         "(default 0.35 in demo output; 0 disables)")
     ap.add_argument("--akamai-base", default=config.SIM_AKAMAI_BASE)
     ap.add_argument("--cloudflare-base", default=config.SIM_CLOUDFLARE_BASE)
     args = ap.parse_args(argv)
 
-    out = make_reporter(demo=args.demo, plain=args.plain)
+    out = make_reporter(demo=args.demo, plain=args.plain, pace=args.pace)
     total = 9
 
     if args.replay:
@@ -182,21 +185,20 @@ def main(argv=None):
     out.step(f"run {rid} — domains: {', '.join(domains)}")
     out.golden_state(domains, DOMAIN_ROLES, golden_shas, mapping_version)
 
-    # [2/9] + [3/9] pull provider configs (fetch lines via on_fetch)
+    # [2/9] + [3/9] pull provider configs — the fetch rows land one at a
+    # time as each document returns (demo output paces this deliberately)
     source = ApiSource(args.akamai_base, args.cloudflare_base)
     bundles = {}
     out.phase(2, total, "Pulling Akamai configs")
-    ak_rows = []
-    for d in domains:
-        bundles[d] = {"akamai": collect.collect_akamai(
-            source, d, lambda p, k, dom, u: ak_rows.append((dom, k, u)))}
-    out.fetch_table(ak_rows)
+    with out.fetch_stream() as fs:
+        for d in domains:
+            bundles[d] = {"akamai": collect.collect_akamai(
+                source, d, lambda p, k, dom, u: fs.add(dom, k, u))}
     out.phase(3, total, "Pulling Cloudflare configs")
-    cf_rows = []
-    for d in domains:
-        bundles[d]["cloudflare"] = collect.collect_cloudflare(
-            source, d, lambda p, k, dom, u: cf_rows.append((dom, k, u)))
-    out.fetch_table(cf_rows)
+    with out.fetch_stream() as fs:
+        for d in domains:
+            bundles[d]["cloudflare"] = collect.collect_cloudflare(
+                source, d, lambda p, k, dom, u: fs.add(dom, k, u))
 
     # [4/9] write bundles — the golden attachment joins the two provider
     # bundles so detection sessions need no repository at all

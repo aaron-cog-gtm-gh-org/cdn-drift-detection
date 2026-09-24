@@ -6,6 +6,7 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from orchestrator.console import DemoReporter, PlainReporter, make_reporter
@@ -97,7 +98,6 @@ def test_plain_phase_and_artifact_silent():
 
 
 def _demo():
-    from rich.console import Console
     return DemoReporter(console=Console(file=StringIO(), force_terminal=True,
                                         width=100))
 
@@ -110,7 +110,8 @@ def test_demo_every_method_renders():
     r.artifact("www.akamai.json", "/tmp/x.json", sha="abc", nbytes=5)
     r.artifact_table([("f.json", "/tmp/f.json", "abc", 5)])
     r.kv("mapping_version", "v")
-    r.fetch_table([("www.rbcdemo.ca", "rules", "/papi/x")])
+    with r.fetch_stream() as fs:
+        fs.add("www.rbcdemo.ca", "rules", "/papi/x")
     r.fetch("akamai", "rules", "www.rbcdemo.ca", "/papi/v1/properties/x/rules")
     r.session_created("www.rbcdemo.ca", "devin-1",
                       "https://x/sessions/devin-1")
@@ -170,7 +171,6 @@ def test_demo_equivalences_compact_truncates_reason():
 
 
 def test_demo_equivalences_narrow_console_degrades():
-    from rich.console import Console
     r = DemoReporter(console=Console(file=StringIO(), force_terminal=True,
                                      width=40))
     rep = {"equivalent_but_different": [
@@ -178,6 +178,56 @@ def test_demo_equivalences_narrow_console_degrades():
          "why_equivalent": "r" * 100}]}
     r.equivalences("www.rbcdemo.ca", rep)  # avail floor 20, no negative width
     assert "f.x" in r.console.file.getvalue()
+
+
+def test_plain_pause_and_fetch_stream_silent():
+    from contextlib import redirect_stderr
+    out, err = StringIO(), StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        r = PlainReporter()
+        r.pause()  # must not sleep or emit
+        with r.fetch_stream() as fs:
+            for i in range(3):
+                fs.add("d", "rules", f"/p/{i}")
+    assert out.getvalue() == "" and err.getvalue() == ""
+
+
+def test_demo_pace_zero_never_sleeps(monkeypatch):
+    import orchestrator.console as C
+    calls = []
+    monkeypatch.setattr(C.time, "sleep", lambda s: calls.append(s))
+    r = DemoReporter(console=Console(
+        file=StringIO(), force_terminal=True, width=200), pace=0)
+    r.phase(1, 9, "t")
+    with r.fetch_stream() as fs:
+        for i in range(3):
+            fs.add("d", "rules", f"/p/{i}")
+    assert calls == []
+
+
+def test_demo_pace_sleeps_per_add_and_phase(monkeypatch):
+    import orchestrator.console as C
+    calls = []
+    monkeypatch.setattr(C.time, "sleep", lambda s: calls.append(s))
+    r = DemoReporter(console=Console(
+        file=StringIO(), force_terminal=True, width=200), pace=0.01)
+    r.phase(1, 9, "t")          # weight 1.5
+    with r.fetch_stream() as fs:
+        for i in range(3):
+            fs.add("d", "rules", f"/p/{i}")  # weight 1.0 each
+    assert calls == [0.015, 0.01, 0.01, 0.01]
+
+
+def test_demo_fetch_stream_rows_in_order():
+    r = DemoReporter(console=Console(file=StringIO(), force_terminal=True,
+                                     width=200))
+    with r.fetch_stream() as fs:
+        fs.add("www.rbcdemo.ca", "rules", "/papi/1")
+        fs.add("api.rbcdemo.ca", "appsec", "/appsec/2")
+    text = r.console.file.getvalue()
+    assert "www.rbcdemo.ca" in text and "api.rbcdemo.ca" in text
+    assert text.index("www.rbcdemo.ca") < text.rindex("api.rbcdemo.ca")
+    assert "GET /papi/1" in text and "GET /appsec/2" in text
 
 
 def test_replay_renders_saved_reports(tmp_path):

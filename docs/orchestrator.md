@@ -49,6 +49,8 @@ Everything is run from the repo root with `~/cdn-drift-venv/bin/python`.
 --devin-mode normal     # v3 devin_mode field
 --no-remediate          # detection only
 --poll-interval 20      # seconds between session polls
+--pace 0.5              # demo-step pause (default 0.35s in demo
+                        # output; 0 disables)
 --demo / --plain        # force rich or plain output; default is rich on a
                         # tty, plain when piped (keeps CI/captured output stable)
 --full-equivalences     # expand each equivalent field's reasoning (compact

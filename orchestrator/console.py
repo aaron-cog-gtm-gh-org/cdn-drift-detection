@@ -22,17 +22,24 @@ The interface both classes implement:
     summary(run_id, reports, artifacts_dir)
     warn(text) / error(text)
     golden_state(domains, roles, shas, mapping_version)   # phase 1
-    fetch_table(rows)            # rows of (domain, document, request)
+    fetch_stream()               # cm yielding obj with .add(domain, kind, url)
     artifact_table(rows)         # rows of (name, path, sha256, nbytes)
     fetch(provider, kind, domain, url)   # one line per document pulled
     schema_summary(schema)        # compact contract view (dry-run default)
     schema_block(schema)          # full schema dump (--show-schema)
     prompt_block(domain, prompt)  # dry-run only
     sessions_live()               # context manager wrapping phase 7
+    pause(weight=1.0)             # demo pacing; no-op in plain output
 """
 import sys
+import time
 from contextlib import nullcontext
 from pathlib import Path
+
+
+class _NoopFetch:
+    def add(self, domain, kind, url):
+        pass
 
 
 class PlainReporter:
@@ -43,10 +50,13 @@ class PlainReporter:
             print(f"  {d}: golden_sha={shas[d][:12]}")
         print(f"mapping_version={mapping_version}")
 
-    def fetch_table(self, rows):
-        pass
+    def fetch_stream(self):
+        return nullcontext(_NoopFetch())
 
     def artifact_table(self, rows):
+        pass
+
+    def pause(self, weight=1.0):
         pass
 
     def phase(self, index, total, title, subtitle=None):
@@ -148,13 +158,20 @@ class DemoReporter:
 
     TOTAL_PHASES = 9
 
-    def __init__(self, console=None):
+    def __init__(self, console=None, pace=0.0):
         from rich.console import Console
         self.console = console or Console()
         self._err = console or Console(stderr=True)
+        self.pace = pace
         self._status = {}          # domain -> {"status": str, "acus": ...}
         self._status_order = []    # stable row order
         self._live = None
+        self._fetch_rows = []      # (domain, kind, url) rows painted so far
+        self._fetch_live = None
+
+    def pause(self, weight=1.0):
+        if self.pace > 0:
+            time.sleep(self.pace * weight)
 
     # -- generic lines --------------------------------------------------------
 
@@ -165,6 +182,7 @@ class DemoReporter:
                                 style="cyan"))
         if subtitle:
             self.console.print(f"  [dim]{subtitle}[/]")
+        self.pause(1.5)
 
     def golden_state(self, domains, roles, shas, mapping_version):
         from rich.table import Table
@@ -176,29 +194,58 @@ class DemoReporter:
             t.add_row(d, roles.get(d, ""), shas[d][:12])
         self.console.print(t)
         self.kv("mapping_version", mapping_version)
+        self.pause()
 
-    def fetch_table(self, rows):
+    def fetch_stream(self):
+        """A live-growing fetch table; .add lands a row, pauses, repaints."""
+        from rich.live import Live
         from rich.table import Table
-        t = Table(show_lines=False, pad_edge=True)
-        t.add_column("domain", style="bold", no_wrap=True)
-        t.add_column("document")
-        t.add_column("request", style="dim", overflow="ellipsis",
-                     no_wrap=True)
-        for domain, kind, url in rows:
-            t.add_row(domain, kind, f"GET {url}" if url else "")
-        self.console.print(t)
+        reporter = self
+
+        class _Stream:
+            def __enter__(self):
+                reporter._fetch_rows = []  # phases 2/3 open separate streams
+                reporter._fetch_live = Live(
+                    _table(), console=reporter.console, refresh_per_second=4)
+                reporter._fetch_live.__enter__()
+                return self
+
+            def __exit__(self, *exc):
+                reporter._fetch_live.__exit__(*exc)
+                reporter._fetch_live = None
+                return False
+
+            def add(self, domain, kind, url):
+                reporter._fetch_rows.append((domain, kind, url))
+                reporter._fetch_live.update(_table())
+                reporter.pause()
+
+        def _table():
+            t = Table(show_lines=False, pad_edge=True)
+            t.add_column("domain", style="bold", no_wrap=True)
+            t.add_column("document")
+            t.add_column("request", style="dim", overflow="ellipsis",
+                         no_wrap=True)
+            for domain, kind, url in reporter._fetch_rows:
+                t.add_row(domain, kind, f"GET {url}" if url else "")
+            return t
+
+        return _Stream()
 
     def artifact_table(self, rows):
+        from rich.live import Live
         from rich.table import Table
         t = Table(show_lines=False, pad_edge=True)
         t.add_column("file", no_wrap=True)
         t.add_column("sha256", style="magenta", no_wrap=True)
         t.add_column("size", justify="right", no_wrap=True)
-        for name, path, sha, nbytes in rows:
-            t.add_row(f"[link=file://{path}]{name}[/link]",
-                      str(sha)[:12] if sha else "",
-                      f"{nbytes} B" if nbytes is not None else "")
-        self.console.print(t)
+        with Live(t, console=self.console, refresh_per_second=4) as live:
+            for name, path, sha, nbytes in rows:
+                t.add_row(f"[link=file://{path}]{name}[/link]",
+                          str(sha)[:12] if sha else "",
+                          f"{nbytes} B" if nbytes is not None else "")
+                live.update(t)
+                self.pause()
 
     def step(self, text):
         self.console.print(text)
@@ -426,10 +473,15 @@ class DemoReporter:
                                  border_style="dim"))
 
 
-def make_reporter(demo=None, plain=None, console=None):
-    """--demo forces rich, --plain forces flat; default rich iff tty."""
+def make_reporter(demo=None, plain=None, console=None, pace=None):
+    """--demo forces rich, --plain forces flat; default rich iff tty.
+
+    `pace` is demo-output pacing in seconds; None means the stage default
+    0.35s, 0 disables. PlainReporter ignores pacing entirely.
+    """
     if plain:
         return PlainReporter()
     if demo or sys.stdout.isatty():
-        return DemoReporter(console=console)
+        return DemoReporter(console=console,
+                            pace=0.35 if pace is None else pace)
     return PlainReporter()
