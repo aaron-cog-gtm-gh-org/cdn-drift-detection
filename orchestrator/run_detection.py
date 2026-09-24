@@ -88,7 +88,6 @@ def render_prompt(domain, golden_sha, mapping_version, manifest):
     return DETECTION_PROMPT.format(
         domain=domain, domain_role=DOMAIN_ROLES[domain],
         golden_sha=golden_sha, mapping_version=mapping_version,
-        golden_branch=config.GOLDEN_BRANCH,
         attachment_manifest=collect.attachment_manifest(domain, manifest))
 
 
@@ -276,9 +275,11 @@ def main(argv=None):
     det_dir.mkdir(parents=True, exist_ok=True)
     bad = []
     # [8/9] findings — reports validated + rendered as polls finish
+    polled = {}
     with out.sessions_live():
         with ThreadPoolExecutor(max_workers=len(domains)) as ex:
             for d, body in ex.map(poll, domains):
+                polled[d] = body
                 report = body.get("structured_output")
                 if not isinstance(report, dict):
                     bad.append(f"{d}: session ended without structured output "
@@ -289,6 +290,11 @@ def main(argv=None):
                 reports[d] = report
                 (det_dir / f"{d}.json").write_text(
                     json.dumps(report, indent=2, sort_keys=True) + "\n")
+        # repaint once more with each session's terminal state so the live
+        # table's last frame doesn't leave stale 'running' rows on screen
+        for d, body in polled.items():
+            out.session_status(d, body.get("status"),
+                               body.get("acus_consumed"))
     out.phase(8, total, "Findings")
     for d in domains:
         if d in reports:

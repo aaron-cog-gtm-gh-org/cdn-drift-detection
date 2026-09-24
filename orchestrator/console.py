@@ -234,7 +234,10 @@ class DemoReporter:
         for d in self._status_order:
             s = self._status[d]
             st = s["status"] or "?"
-            t.add_row(d, f"[{style.get(st, 'white')}]{st}[/]", str(s["acus"]))
+            acus = (f"{s['acus']:.2f}"
+                    if isinstance(s["acus"], (int, float))
+                    else str(s["acus"]))  # display rounding only
+            t.add_row(d, f"[{style.get(st, 'white')}]{st}[/]", acus)
         return t
 
     def sessions_live(self):
