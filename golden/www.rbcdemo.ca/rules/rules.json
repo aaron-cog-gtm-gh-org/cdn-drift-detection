@@ -118,26 +118,6 @@
         "comment": "Image Manager policy rbcdemo-www-im"
       },
       {
-        "name": "Geo restrictions",
-        "children": [],
-        "behaviors": [],
-        "criteria": [
-          {
-            "name": "userLocation",
-            "options": {
-              "matchOperator": "IS_NOT_ONE_OF",
-              "values": [
-                "continent:NA",
-                "continent:EU"
-              ],
-              "matchCaseSensitive": false
-            }
-          }
-        ],
-        "criteriaMustSatisfy": "all",
-        "comment": "Non-NA/EU traffic gets extra screening via children."
-      },
-      {
         "name": "Sanctioned countries",
         "children": [],
         "behaviors": [
