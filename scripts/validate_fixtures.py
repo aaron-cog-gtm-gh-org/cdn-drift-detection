@@ -15,10 +15,12 @@ jsonpath-ng, e.g. in the phase-01 venv)
 """
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
+import httpx
 import yaml
 from jsonpath_ng.ext import parse as jparse
 
@@ -194,45 +196,53 @@ def compare_values(field, provider, values, golden, golden_key, mapping):
 # ---------------- sources (disk | api) ----------------
 
 
-def domain_meta():
-    """Addressing index the API source needs (propertyId/version/configId/zoneId).
-    Metadata only — fixture content itself comes from the source."""
-    props = load_json(REPO / "fixtures/akamai/properties.json")
-    meta = {}
-    for item in props["properties"]["items"]:
-        d = item["propertyName"]
-        meta[d] = {"property_id": item["propertyId"],
-                   "version": item["latestVersion"]}
-        ap = REPO / "fixtures/akamai" / d / "appsec.json"
-        if ap.exists():
-            doc = load_json(ap)
-            meta[d]["config_id"] = doc["configId"]
-            meta[d]["config_version"] = doc["configVersion"]
-        meta[d]["zone_id"] = load_json(
-            REPO / "fixtures/cloudflare" / d / "zone.json")["result"]["id"]
-    return meta
-
-
 class DiskSource:
     def get(self, provider, fixture_name, domain):
         return load_json(fixture_path(provider, fixture_name, domain))
 
 
 class ApiSource:
-    """Fetch the same fixture documents over the simulators' HTTP APIs."""
+    """Fetch fixture documents over the simulators' HTTP APIs.
+
+    Identifiers are discovered over the APIs themselves, once per run: given
+    only a domain name, the propertyId/version comes from the PAPI property
+    list, the zone id from `GET /zones?name=`, and the App Sec configId from
+    `GET /appsec/v1/configs` — nothing is read off disk."""
 
     AKAMAI_AUTH = ("EG1-HMAC-SHA256 client_token=sim;access_token=sim;"
                    "timestamp=2026-01-01T00:00:00+00:00;nonce=1;signature=sim")
 
     def __init__(self, akamai_base, cloudflare_base):
-        import httpx
-        self.meta = domain_meta()
         self.ak = httpx.Client(base_url=akamai_base, timeout=10,
                                headers={"Authorization": self.AKAMAI_AUTH})
-        import os
         token = os.environ.get("CLOUDFLARE_SIM_TOKEN", "demo-token")
         self.cf = httpx.Client(base_url=cloudflare_base, timeout=10,
                                headers={"Authorization": f"Bearer {token}"})
+        self._meta = None
+
+    def discover(self):
+        """Resolve domain -> propertyId/version, zoneId, appsec configId once."""
+        props = self.ak.get("/papi/v1/properties").json()["properties"]["items"]
+        configs = self.ak.get("/appsec/v1/configs").json()["configurations"]
+        meta = {}
+        for d in DOMAINS:
+            prop = next(p for p in props if p["propertyName"] == d)
+            z = self.cf.get("/client/v4/zones", params={"name": d}).json()
+            cfg = next((c for c in configs if d in c.get("hostnames", [])), None)
+            meta[d] = {
+                "property_id": prop["propertyId"],
+                "version": prop["latestVersion"],
+                "zone_id": z["result"][0]["id"],
+                "config_id": cfg["id"] if cfg else None,
+                "config_version": cfg["latestVersion"] if cfg else None,
+            }
+        return meta
+
+    @property
+    def meta(self):
+        if self._meta is None:
+            self._meta = self.discover()
+        return self._meta
 
     def get(self, provider, fixture_name, domain):
         m = self.meta[domain]

@@ -45,6 +45,19 @@ def test_list_zones_by_name(client):
     assert "result_info" in body
 
 
+def test_list_zones_pagination(client):
+    r1 = client.get("/client/v4/zones", params={"page": 1, "per_page": 3},
+                    headers=AUTH).json()
+    assert len(r1["result"]) == 3
+    assert r1["result_info"]["total_count"] == 4
+    assert r1["result_info"]["total_pages"] == 2
+    r2 = client.get("/client/v4/zones", params={"page": 2, "per_page": 3},
+                    headers=AUTH).json()
+    assert len(r2["result"]) == 1
+    all_ids = {z["id"] for z in r1["result"] + r2["result"]}
+    assert len(all_ids) == 4
+
+
 def test_list_zones_unknown_name(client):
     r = client.get("/client/v4/zones", params={"name": "nope.example"},
                    headers=AUTH)

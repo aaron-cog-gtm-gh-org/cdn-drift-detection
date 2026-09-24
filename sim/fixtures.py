@@ -43,7 +43,6 @@ class FixtureIndex:
 
         self.cf = {}                # domain -> {"zone":..,"settings":..,"rulesets":..,"dns":..}
         self.zone_by_id = {}
-        self.zone_by_name = {}
         for d in DOMAINS:
             base = self.repo / "fixtures" / "cloudflare" / d
             entry = {"zone": _load(base / "zone.json"),
@@ -52,7 +51,6 @@ class FixtureIndex:
                      "dns_records": _load(base / "dns_records.json")}
             self.cf[d] = entry
             self.zone_by_id[entry["zone"]["result"]["id"]] = d
-            self.zone_by_name[d] = d
 
 
 INDEX = FixtureIndex()

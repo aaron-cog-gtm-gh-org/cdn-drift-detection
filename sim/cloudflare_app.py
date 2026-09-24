@@ -55,7 +55,10 @@ def list_zones(name: str = None, page: int = 1, per_page: int = 20):
     zones = [INDEX.cf[d]["zone"]["result"] for d in DOMAINS]
     if name:
         zones = [z for z in zones if z["name"] == name]
-    return envelope(zones, result_info=result_info(page, per_page, len(zones), len(zones)))
+    total = len(zones)
+    items = zones[(page - 1) * per_page:page * per_page]
+    return envelope(items,
+                    result_info=result_info(page, per_page, len(items), total))
 
 
 def _zone_or_404(zone_id):

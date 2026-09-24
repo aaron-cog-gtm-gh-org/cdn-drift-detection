@@ -65,6 +65,23 @@ def findings_block(out):
     return m.group(1) if m else None
 
 
+def test_discovery_resolves_identifiers_over_api(sims):
+    ak_port, cf_port, db = sims
+    sys.path.insert(0, str(REPO / "scripts"))
+    import validate_fixtures as vf
+    src = vf.ApiSource(f"http://127.0.0.1:{ak_port}",
+                       f"http://127.0.0.1:{cf_port}")
+    meta = src.meta
+    assert meta["www.rbcdemo.ca"]["property_id"] == "prp_512345"
+    assert meta["www.rbcdemo.ca"]["version"] == 47
+    assert meta["online.rbcdemo.ca"]["zone_id"] == \
+        "2b3c4d5e6f708192a3b4c5d6e7f8091a"
+    assert meta["api.rbcdemo.ca"]["config_id"] == "waf_90012"
+    assert meta["api.rbcdemo.ca"]["config_version"] == 9
+    # second access is cached — no repeated discovery
+    assert src.meta is meta
+
+
 def test_api_store_matches_disk_files(sims):
     ak_port, cf_port, db = sims
     disk = run_validator()

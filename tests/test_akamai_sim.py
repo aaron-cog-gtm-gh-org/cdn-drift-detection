@@ -36,6 +36,14 @@ def test_malformed_auth(client):
     assert r.status_code == 401
 
 
+def test_auth_right_scheme_missing_signature(client):
+    r = client.get("/papi/v1/properties",
+                   headers={"Authorization":
+                            "EG1-HMAC-SHA256 client_token=ct;access_token=at;"
+                            "timestamp=2026-01-01T00:00:00+00:00;nonce=n1"})
+    assert r.status_code == 401
+
+
 def test_list_properties(client):
     r = client.get("/papi/v1/properties", headers=AUTH)
     assert r.status_code == 200
@@ -127,6 +135,20 @@ def test_appsec_export(client):
     r = client.get("/appsec/v1/export/configs/waf_90010/versions/17", headers=AUTH)
     assert r.status_code == 200
     assert r.json()["configName"].startswith("www.rbcdemo.ca")
+
+
+def test_appsec_list_configs(client):
+    r = client.get("/appsec/v1/configs", headers=AUTH)
+    assert r.status_code == 200
+    configs = r.json()["configurations"]
+    assert len(configs) == 3
+    by_name = {c["name"]: c for c in configs}
+    api_cfg = by_name["api.rbcdemo.ca security config"]
+    assert api_cfg["id"] == "waf_90012"
+    assert api_cfg["latestVersion"] == 9
+    assert api_cfg["hostnames"] == ["api.rbcdemo.ca"]
+    assert {"id", "name", "latestVersion", "stagingVersion",
+            "productionVersion", "hostnames"} <= set(configs[0])
 
 
 def test_appsec_export_404(client):

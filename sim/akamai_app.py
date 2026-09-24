@@ -34,7 +34,7 @@ async def edgegrid_auth(request: Request, call_next):
     if request.url.path == "/healthz":
         return await call_next(request)
     auth = request.headers.get("authorization", "")
-    if not auth or not auth.startswith("EG1-HMAC-SHA256 "):
+    if not auth or not AUTH_RE.match(auth):
         return problem(401, "Unauthorized",
                        "missing or malformed EdgeGrid authorization header",
                        request.url.path)
@@ -140,6 +140,26 @@ def get_hostnames(property_id: str, version: int, request: Request):
         return Response(status_code=304)
     return JSONResponse(content=maybe_strip(doc, request),
                         headers={"ETag": doc.get("etag", "")})
+
+
+@app.get("/appsec/v1/configs")
+def list_appsec_configs(request: Request):
+    """List security configurations (real App Sec operation; shape approximates
+    the live response — see docs/simulators.md)."""
+    configs = []
+    for (cid, _v), doc in INDEX.appsec_by_config.items():
+        hostnames = sorted({h for p in doc.get("securityPolicies", [])
+                            for h in p.get("hostnames", [])})
+        configs.append({
+            "id": cid,
+            "name": doc["configName"],
+            "description": f"WAF config for {', '.join(hostnames)}",
+            "latestVersion": doc["configVersion"],
+            "stagingVersion": doc["configVersion"],
+            "productionVersion": doc["configVersion"],
+            "hostnames": hostnames,
+        })
+    return maybe_strip({"configurations": configs}, request)
 
 
 @app.get("/appsec/v1/export/configs/{config_id}/versions/{version}")

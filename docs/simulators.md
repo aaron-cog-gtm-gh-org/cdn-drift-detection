@@ -24,6 +24,7 @@ scripts/run_simulators.sh
 | `GET /papi/v1/properties/{propertyId}` | same envelope, one item; unknown → 404 |
 | `GET /papi/v1/properties/{propertyId}/versions/{v}/rules` | `<domain>/rules.json` verbatim; wrong version → 404 |
 | `GET /papi/v1/properties/{propertyId}/versions/{v}/hostnames` | `<domain>/hostnames.json` verbatim |
+| `GET /appsec/v1/configs` | `{"configurations": [...]}` — one entry per appsec fixture with `id`, `name`, `description`, `latestVersion`, `stagingVersion`, `productionVersion`, `hostnames` |
 | `GET /appsec/v1/export/configs/{configId}/versions/{versionNumber}` | `appsec.json` matching `configId`+`configVersion` |
 
 - **Auth:** requires `Authorization: EG1-HMAC-SHA256 client_token=...;access_token=...;timestamp=...;nonce=...;signature=...`. Missing/malformed → 401. The signature is **not verified**.
@@ -73,6 +74,13 @@ Re-running is idempotent except for one new `load_run` row per invocation.
   (`name: www.rbcdemo.ca` etc.), modelling Enterprise subdomain-zone support;
   a real estate might instead be one `rbcdemo.ca` zone with per-host config.
 - **`/healthz` is invented** for both providers.
+- **`GET /appsec/v1/configs` field set is approximate** — it is a real App Sec
+  list operation (`List security configurations`), but the TechDocs response
+  page could not be retrieved during authoring (docs are JS-gated), so the
+  emitted field names (`id`, `name`, `description`, `latestVersion`,
+  `stagingVersion`, `productionVersion`, `hostnames`) are written in the
+  documented API style rather than verified field-by-field. The validator's
+  discovery path only depends on `id`, `latestVersion`, `hostnames`.
 - `PAPI-Use-Prefixes: false` strips every matching string value, including
   places where the real API might keep prefixes (e.g. inside comments).
 - `result_info.total_pages`/`count` follow Cloudflare's documented envelope;
