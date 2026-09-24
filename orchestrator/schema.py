@@ -33,6 +33,7 @@ DETECTION_SCHEMA = {
         "verdict",
         "summary",
         "findings",
+        "fields_reviewed",
     ],
     "properties": {
         "domain": {
@@ -237,6 +238,17 @@ DETECTION_SCHEMA = {
                     "observation": {"type": "string"},
                 },
             },
+        },
+        "fields_reviewed": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "The ids of the mapping fields actually evaluated -- one plain "
+                "string per field. Every field in the attached mapping must "
+                "appear exactly once, whether it ended up as a finding, an "
+                "equivalent_but_different entry, or in sync. An id missing "
+                "from this array means the field was never examined."
+            ),
         },
         "notes": {
             "type": "string",

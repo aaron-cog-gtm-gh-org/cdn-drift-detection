@@ -296,10 +296,30 @@ def main(argv=None):
             out.session_status(d, body.get("status"),
                                body.get("acus_consumed"))
     out.phase(8, total, "Findings")
+    coverage_gaps = {}
     for d in domains:
-        if d in reports:
-            out.findings(d, reports[d])
-            out.equivalences(d, reports[d], full=args.full_equivalences)
+        if d not in reports:
+            continue
+        rep = reports[d]
+        out.findings(d, rep)
+        out.equivalences(d, rep, full=args.full_equivalences)
+        # mapping coverage — a field absent from fields_reviewed was never
+        # examined; a reviewed id not in the scoped mapping is a hallucinated
+        # field; a finding/equivalence field unlisted is internally
+        # inconsistent. Gaps are not schema violations but are never quiet.
+        expected = {f["id"] for f in
+                    gbundles.get(d, {}).get("mapping", {}).get("fields", [])}
+        reviewed = set(rep.get("fields_reviewed") or [])
+        reported = ({f["field"] for f in rep["findings"]} |
+                    {e["field"] for e in
+                     rep.get("equivalent_but_different", [])})
+        gap = {"missing": sorted(expected - reviewed),
+               "unknown": sorted(reviewed - expected),
+               "unlisted": sorted(reported - reviewed)}
+        if any(gap.values()):
+            coverage_gaps[d] = gap
+            out.coverage_warning(d, gap["missing"], gap["unknown"],
+                                 gap["unlisted"])
     for msg in bad:
         out.error(f"SCHEMA: {msg}")
 
@@ -329,11 +349,13 @@ def main(argv=None):
             if plan["skipped"]:
                 out.warn(f"  remediation skipped for {plan['domain']}: "
                          f"verdict inconclusive")
-    out.summary(rid, reports, str(config.ARTIFACTS_DIR / rid))
+    out.summary(rid, reports, str(config.ARTIFACTS_DIR / rid),
+                coverage=coverage_gaps)
     if bad:
         return 1
-    if any(r["verdict"] == "inconclusive" for r in reports.values()):
-        return 2  # a session could not complete its comparison
+    if coverage_gaps or any(r["verdict"] == "inconclusive"
+                            for r in reports.values()):
+        return 2  # an incomplete or unverifiable comparison is not a pass
     return 0
 
 

@@ -35,6 +35,12 @@ Your task: for every field the mapping scopes to this domain, decide whether \
 each provider still expresses what the golden configuration requires, and \
 report the ones that do not.
 
+Work the mapping field by field, and do not stop early. Every field must land \
+in exactly one bucket -- a finding, an `equivalent_but_different` entry, or \
+in sync -- and its id must appear exactly once in `fields_reviewed`. If a \
+field genuinely cannot be evaluated because an input is missing, say so in \
+`notes` -- never omit a field silently.
+
 How to judge equivalence -- this is the whole job:
 
 - Compare *meaning*, not text. Akamai and Cloudflare describe the same intent \

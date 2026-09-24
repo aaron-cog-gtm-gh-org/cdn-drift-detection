@@ -90,12 +90,27 @@ class PlainReporter:
     def deferred(self, domain, field, note):
         print(f"  deferred ({note}): {domain} {field}")
 
-    def summary(self, run_id, reports, artifacts_dir):
+    def coverage_warning(self, domain, missing, unknown, unlisted):
+        if missing:
+            print(f"  COVERAGE GAP ({domain}): never reviewed: "
+                  f"{', '.join(missing)}", file=sys.stderr)
+        if unknown:
+            print(f"  COVERAGE GAP ({domain}): reviewed ids not in mapping: "
+                  f"{', '.join(unknown)}", file=sys.stderr)
+        if unlisted:
+            print(f"  COVERAGE GAP ({domain}): reported but not in "
+                  f"fields_reviewed: {', '.join(unlisted)}",
+                  file=sys.stderr)
+
+    def summary(self, run_id, reports, artifacts_dir, coverage=None):
         inc = [d for d, r in reports.items()
                if r["verdict"] == "inconclusive"]
         if inc:
             print(f"  INCONCLUSIVE: {len(inc)} domain(s) could not be "
                   f"compared: {', '.join(inc)}", file=sys.stderr)
+        if coverage:
+            print(f"  COVERAGE GAPS on {len(coverage)} domain(s): "
+                  f"{', '.join(coverage)}", file=sys.stderr)
 
     def warn(self, text):
         print(text, file=sys.stderr)
@@ -326,7 +341,16 @@ class DemoReporter:
         self.console.print(f"  [yellow]deferred[/] {domain} "
                            f"[bold]{field}[/] — [dim]{note}[/]")
 
-    def summary(self, run_id, reports, artifacts_dir):
+    def coverage_warning(self, domain, missing, unknown, unlisted):
+        for label, ids in (("never reviewed", missing),
+                           ("reviewed ids not in mapping", unknown),
+                           ("reported but not in fields_reviewed", unlisted)):
+            if ids:
+                self.console.print(
+                    f"  [bold red]COVERAGE GAP[/] {domain} — "
+                    f"{label}: [bold]{', '.join(ids)}[/]")
+
+    def summary(self, run_id, reports, artifacts_dir, coverage=None):
         from rich.table import Table
         self.console.print()
         self.console.rule("[bold cyan]summary", style="cyan")
@@ -346,6 +370,11 @@ class DemoReporter:
             self.console.print(
                 f"  [bold red]{len(inc)} domain(s) INCONCLUSIVE[/] "
                 f"[red]({', '.join(inc)}) — comparison did not complete[/]")
+        if coverage:
+            self.console.print(
+                f"  [bold red]COVERAGE GAPS on {len(coverage)} domain(s)[/] "
+                f"[red]({', '.join(coverage)}) — fields were never "
+                f"reviewed or ids did not match the mapping[/]")
         if sev_totals:
             line = "  ".join(
                 f"[{SEVERITY_STYLE.get(s, 'white')}]{s}: {n}[/]"
