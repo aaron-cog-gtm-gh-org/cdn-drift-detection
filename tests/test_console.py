@@ -193,6 +193,71 @@ def test_replay_renders_saved_reports(tmp_path):
     rc = replay(str(det), _demo(), 9)
 
 
+def test_no_remediate_renders_phase9_without_sessions(tmp_path, monkeypatch):
+    import json as _json
+    import orchestrator.run_detection as rd
+
+    d = "www.rbcdemo.ca"
+    report = dict(REPORT, verdict="drift_detected")
+    (tmp_path / "f.json").write_text("{}")
+    manifest = {"files": {d: {
+        s: {"path": str(tmp_path / "f.json"), "sha256": "s"}
+        for s in ("akamai", "cloudflare")}}}
+
+    monkeypatch.setattr(rd, "golden_info",
+                        lambda doms, db_path=None: ({x: "a" * 64 for x in doms}, "v"))
+    monkeypatch.setattr(rd.collect, "collect_akamai", lambda *a, **k: {})
+    monkeypatch.setattr(rd.collect, "collect_cloudflare", lambda *a, **k: {})
+    def _write_bundles(rid, b, shas, mv, adir):
+        run_dir = adir / rid
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            _json.dumps(manifest) + "\n")
+        return manifest
+
+    monkeypatch.setattr(rd.collect, "write_bundles", _write_bundles)
+    monkeypatch.setattr(rd, "render_prompt", lambda *a, **k: "prompt")
+    monkeypatch.setattr(rd.config, "get_token", lambda: "t")
+    monkeypatch.setattr(rd.config, "ARTIFACTS_DIR", tmp_path)
+    monkeypatch.setattr(rd, "validate_report", lambda d, r: [])
+
+    created = []
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def upload_attachment(self, path):
+            return "att-url"
+
+        def create_session(self, *a, **k):
+            created.append(k)
+            return {"session_id": "sess-1"}
+
+        def poll_session(self, sid, **k):
+            k["on_tick"]({"status": "running", "acus_consumed": 1})
+            return {"status": "exit", "structured_output": report}
+
+    monkeypatch.setattr(rd, "DevinClient", FakeClient)
+    monkeypatch.setattr(rd, "execute_remediation",
+                        lambda *a, **k: pytest.fail("must not run"))
+
+    spy = PlainReporter()
+    phases = []
+    spy.phase = lambda i, t, title, subtitle=None: phases.append(title)
+    monkeypatch.setattr(rd, "make_reporter", lambda **k: spy)
+
+    buf = StringIO()
+    with redirect_stdout(buf):
+        rc = rd.main(["--no-remediate", "--plain", "--domain", d])
+    assert rc == 0
+    assert any("Remediation routing" in t and "disabled" in t
+               for t in phases)
+    text = buf.getvalue()
+    assert "would route to a remediation session" in text
+    assert len(created) == 1  # the detection session only — nothing else
+
+
 def test_replay_missing_dir_exits():
     import pytest
     from orchestrator.run_detection import replay

@@ -278,8 +278,14 @@ def main(argv=None):
     for msg in bad:
         out.error(f"SCHEMA: {msg}")
 
-    # [9/9] remediation routing
-    if not args.no_remediate:
+    # [9/9] remediation routing — always rendered; with --no-remediate the
+    # pure planning call shows what *would* route, never reaching
+    # execute_remediation (no sessions created, no ACU spend)
+    if args.no_remediate:
+        out.phase(9, total, "Remediation routing "
+                            "(disabled — no sessions created)")
+        _render_would_route(reports, out)
+    else:
         out.phase(9, total, "Remediation routing")
         parent_ids = {d: sessions[d] for d in reports}
         plans = [plan_remediation(reports[d], rid, config.GOLDEN_BRANCH)
@@ -300,6 +306,31 @@ def main(argv=None):
                          f"verdict inconclusive")
     out.summary(rid, reports, str(config.ARTIFACTS_DIR / rid))
     return 1 if bad else 0
+
+
+def _render_would_route(reports, out):
+    """Phase-9 'would route' rendering — pure computation over the reports,
+    no sessions created. Shared by --replay and --no-remediate."""
+    for d, rep in reports.items():
+        if rep["verdict"] == "inconclusive":
+            out.deferred(d, "(all)", "verdict inconclusive — skipped")
+            continue
+        grouped, unknown = route_findings(rep)
+        for route, fs in grouped.items():
+            if not fs:
+                continue
+            if route == "provider_api":
+                for f in fs:
+                    out.deferred(d, f["field"],
+                                 "provider writes are out of scope "
+                                 "until phase 04")
+            else:
+                out.step(f"  {d}: {route} -> {len(fs)} finding(s) "
+                         "would route to a remediation session")
+        for f in unknown:
+            out.deferred(d, f["field"],
+                         f"unrecognized remediation_route "
+                         f"{f.get('remediation_route')!r}")
 
 
 def replay(run_dir, out, total, full_equivalences=False):
@@ -324,26 +355,7 @@ def replay(run_dir, out, total, full_equivalences=False):
         out.findings(d, rep)
         out.equivalences(d, rep, full=full_equivalences)
     out.phase(9, total, "Remediation routing (replay — no sessions created)")
-    for d, rep in reports.items():
-        if rep["verdict"] == "inconclusive":
-            out.deferred(d, "(all)", "verdict inconclusive — skipped")
-            continue
-        grouped, unknown = route_findings(rep)
-        for route, fs in grouped.items():
-            if not fs:
-                continue
-            if route == "provider_api":
-                for f in fs:
-                    out.deferred(d, f["field"],
-                                 "provider writes are out of scope "
-                                 "until phase 04")
-            else:
-                out.step(f"  {d}: {route} -> {len(fs)} finding(s) "
-                         "would route to a remediation session")
-        for f in unknown:
-            out.deferred(d, f["field"],
-                         f"unrecognized remediation_route "
-                         f"{f.get('remediation_route')!r}")
+    _render_would_route(reports, out)
     out.summary(det_dir.parent.name, reports, str(det_dir.parent))
     return 0
 
