@@ -118,55 +118,34 @@
         "comment": "Image Manager policy rbcdemo-www-im"
       },
       {
-        "name": "Geo restrictions",
-        "children": [
+        "name": "Sanctioned countries",
+        "children": [],
+        "behaviors": [
           {
-            "name": "Sanctioned countries",
-            "children": [],
-            "behaviors": [
-              {
-                "name": "denyAccess",
-                "options": {
-                  "enabled": true,
-                  "reason": "GEO_BLOCKED"
-                }
-              }
-            ],
-            "criteria": [
-              {
-                "name": "userLocation",
-                "options": {
-                  "matchOperator": "IS_ONE_OF",
-                  "values": [
-                    "country:KP",
-                    "country:IR",
-                    "country:CU",
-                    "country:SY"
-                  ],
-                  "matchCaseSensitive": false
-                }
-              }
-            ],
-            "criteriaMustSatisfy": "all",
-            "comment": "OFAC/OSFI sanctions list. Do NOT remove \u2014 compliance req."
+            "name": "denyAccess",
+            "options": {
+              "enabled": true,
+              "reason": "GEO_BLOCKED"
+            }
           }
         ],
-        "behaviors": [],
         "criteria": [
           {
             "name": "userLocation",
             "options": {
-              "matchOperator": "IS_NOT_ONE_OF",
+              "matchOperator": "IS_ONE_OF",
               "values": [
-                "continent:NA",
-                "continent:EU"
+                "country:KP",
+                "country:IR",
+                "country:CU",
+                "country:SY"
               ],
               "matchCaseSensitive": false
             }
           }
         ],
         "criteriaMustSatisfy": "all",
-        "comment": "Non-NA/EU traffic gets extra screening via children."
+        "comment": "OFAC/OSFI sanctions list. Do NOT remove \u2014 compliance req."
       },
       {
         "name": "Maintenance window",

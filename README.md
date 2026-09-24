@@ -35,6 +35,32 @@ fixtures, golden Terraform, and the semantic field mapping.
 - `store/` — SQLite golden-state store (`golden.db` is generated, gitignored).
 - `scripts/validate_fixtures.py` — the exit-gate validator.
 
+## Run the demo (phase 03)
+
+One command, from the repo root:
+
+```sh
+export DEVIN_ENTERPRISE_SERVICE_USER=<service-user token>   # required, never printed
+./scripts/demo.sh                # live run: one detection session per domain
+./scripts/demo.sh --dry-run      # rehearsal: same output through bundle
+                                 # collection + rendered prompts, no ACU spend
+```
+
+The script starts the simulators if they aren't already answering on
+:8081/:8082, then runs the orchestrator. To re-show a finished run's findings
+offline — bad room network, or no time for a live run:
+
+```sh
+./scripts/demo.sh --replay artifacts/<run_id>
+```
+
+Flags worth knowing on stage: `--demo` / `--plain` (rich output is the
+default on a tty, plain when piped so CI and captured output stay stable),
+`--full-equivalences` (expand the equivalent-fields reasoning),
+`--show-schema` (print the full output contract in a dry run), `--domain`
+(repeatable subset), `--no-remediate`, `--max-acu`. See
+`docs/orchestrator.md` for the nine phases and the API notes.
+
 ## Validate
 
 ```sh

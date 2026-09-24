@@ -13,7 +13,7 @@
 # finding (route: human), not drift and not a validation error.
 # `unsupported: true` means the provider cannot express the field — the field
 # can only ever produce a migration gap, never drift.
-version: "2026.09.1"
+version: "2026.09.3"
 rule_format: "v2023-01-05"
 
 # Provider defaults applied when the other side omits the field entirely.
@@ -50,6 +50,106 @@ value_tables:
   polish:
     cloudflare: { off: "off", lossless: "lossless", lossy: "lossy" }
     literal: { off: "off", lossless: "lossless", lossy: "lossy" }
+
+# These sections are data, not commentary: they are the source of truth for
+# what the flags and comparators mean, and they ship inside each detection
+# session's golden bundle so nothing has to be inferred from a flag's name.
+
+flag_definitions:
+  allow_absent: >-
+    When true on a provider side, an unresolved provider path is a migration
+    gap: report it as a finding routed to human review. It is NOT permission
+    for the field to be absent -- the golden intent still applies and the gap
+    itself is the reportable condition.
+  unsupported: >-
+    When true on a provider side, that provider cannot express this field at
+    all. The side is skipped entirely -- it can only ever produce a migration
+    gap, never drift, and no provider path is resolved for it.
+
+comparator_definitions:
+  exact: >-
+    Canonicalized observed values must equal the canonicalized golden values
+    in the same order, compared as strings.
+  bool_eq: >-
+    Both sides are coerced to booleans (on/true/1/enabled vs off/false/0/
+    disabled) before comparison -- a boolean and a mode string meaning the
+    same thing are equal.
+  numeric_eq: >-
+    Both sides are coerced to numbers before comparison.
+  numeric_ge: >-
+    Every observed value must be numerically greater than or equal to the
+    golden value -- the golden value is a floor, not a target.
+  duration_eq: >-
+    Durations are normalized to seconds before comparison (s, m, h, d, w
+    suffixes supported) -- "4h" and 14400 are equal.
+  set_equal: >-
+    The union of all observed values, as a set, must equal the union of all
+    golden values -- order is never significant.
+  semantic_enum: >-
+    Values are canonicalized through the field's value table, then compared
+    as sorted string sets -- different provider vocabularies for the same
+    semantic value are equal.
+  semantic_enum_ge: >-
+    Like semantic_enum, but when both sides parse as numbers the observed
+    values must be numerically greater than or equal to golden (e.g. a TLS
+    version floor); non-numeric values fall back to exact equality.
+  presence: >-
+    The field must be expressed: at least one resolved value that is not
+    null, empty, or false. The value itself is not compared to golden.
+  regex_equivalent: >-
+    Expressions are normalized (whitespace and quotes stripped, lowercased)
+    and compared as sorted sets -- syntactic differences between the two
+    providers' expression languages are not drift.
+
+key_definitions:
+  defaults: >-
+    Provider-stock values applied only for Cloudflare zone settings: when a
+    field's cloudflare path resolves to nothing and the setting id named in
+    the path appears in defaults.cloudflare_settings, the listed value is the
+    provider's documented stock behaviour. Compare it exactly as if it were
+    present -- the absence is not drift and not a migration gap.
+  domains: >-
+    The domains this field applies to. A field with no domains: list applies
+    to every domain.
+  golden: >-
+    How the intended value is specified: `path` resolves a jsonpath in the
+    named golden `fixture` (rules or appsec) against the attached golden
+    document, `literal` is the intended value directly, and `values` is a
+    per-domain map of intended values.
+  fixture: >-
+    Names which attached document a side's `path` resolves against -- akamai:
+    rules, hostnames, appsec; cloudflare: settings, rulesets, dns_records,
+    zone; golden: rules, appsec.
+  value_table: >-
+    Names a table in `value_tables` translating each provider's vocabulary to
+    a canonical value before comparison -- different tokens for the same
+    meaning are not drift.
+  value_translate: >-
+    Literal substitutions applied to a resolved value before comparison,
+    e.g. rendering a symbolic token into this domain's hostname.
+  extract: >-
+    A regex applied to each resolved value whose capture group replaces the
+    value before comparison.
+  extract_all: >-
+    Splits a resolved string into every regex match before comparison.
+  strip_prefix: >-
+    Removes the named leading prefix from a resolved string value before
+    comparison.
+  split: >-
+    Splits a resolved string on the separator into separate values before
+    comparison.
+  empty_means: >-
+    Annotation naming the token this provider uses to represent an empty
+    set (e.g. "[]") when the control is present but configures nothing.
+  normalize: >-
+    Annotation of the normalization applied to both sides before comparison
+    (e.g. strip whitespace and quotes, lowercase).
+  note: >-
+    Free-text annotation about where an equivalent control lives or why a
+    provider side is absent. Informational context, not a comparison rule.
+  rule_format: >-
+    The Akamai rule-tree format version this estate's exports use; version
+    metadata only.
 
 fields:
   # ---------- TLS and certificates ----------
@@ -582,7 +682,7 @@ fields:
     comparator: set_equal
     domains: [www.rbcdemo.ca]
     akamai:
-      path: "$.rules.children[?(@.name=='Geo restrictions')].children[*].criteria[?(@.name=='userLocation')].options.values"
+      path: "$.rules.children[?(@.name=='Sanctioned countries')].criteria[?(@.name=='userLocation')].options.values"
       strip_prefix: "country:"
     cloudflare:
       fixture: rulesets
