@@ -1,0 +1,558 @@
+{
+  "rules": {
+    "name": "default",
+    "children": [
+      {
+        "name": "Banking pages no-store",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "NO_STORE",
+              "mustRevalidate": false,
+              "ttl": "0s",
+              "enhancedRfc": false
+            }
+          },
+          {
+            "name": "downstreamCache",
+            "options": {
+              "behavior": "BUST"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/accounts/*",
+                "/transfers/*",
+                "/profile/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Every authenticated surface must be NO_STORE \u2014 PCI req."
+      },
+      {
+        "name": "Session cookie handling",
+        "children": [
+          {
+            "name": "Session renew",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "setVariable",
+                "options": {
+                  "variableName": "PMUSER_SESSION_TOUCH",
+                  "valueSource": "EXPRESSION",
+                  "variableValue": "1",
+                  "transform": "NONE"
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "cookie",
+                "options": {
+                  "cookieName": "OBSESSION",
+                  "matchOperator": "IS_DEFINED"
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": ""
+          }
+        ],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "BYPASS",
+              "mustRevalidate": false,
+              "ttl": "0s",
+              "enhancedRfc": false
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "cookie",
+            "options": {
+              "cookieName": "OBSESSION",
+              "matchOperator": "IS_DEFINED"
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Never cache on session cookie. OBSESSION is the online-banking cookie."
+      },
+      {
+        "name": "Strict TLS",
+        "children": [
+          {
+            "name": "Legacy clients",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "denyAccess",
+                "options": {
+                  "enabled": true,
+                  "reason": "TLS_TOO_OLD"
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "requestHeader",
+                "options": {
+                  "headerName": "x-forwarded-proto",
+                  "matchOperator": "IS_NOT_ONE_OF",
+                  "values": [
+                    "https"
+                  ],
+                  "matchCaseSensitive": false
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": "Defense in depth \u2014 edge should already be TLS-only."
+          }
+        ],
+        "behaviors": [
+          {
+            "name": "modifyOutgoingResponseHeader",
+            "options": {
+              "action": "ADD",
+              "customHeaderName": "Strict-Transport-Security",
+              "customHeaderValue": "max-age=63072000; includeSubDomains; preload",
+              "standardModifyHeaderName": "OTHER"
+            }
+          }
+        ],
+        "criteria": [],
+        "criteriaMustSatisfy": "all",
+        "comment": "2y HSTS + preload per sec architecture review."
+      },
+      {
+        "name": "Login rate limiting",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "rateLimit",
+            "options": {
+              "enabled": true,
+              "requestsPerPeriod": 30,
+              "period": "60s",
+              "action": "DENY",
+              "burstAllowance": 5
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/auth/login"
+              ],
+              "matchCaseSensitive": false
+            }
+          },
+          {
+            "name": "requestMethod",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "POST"
+              ]
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Mirrors App & API Protector rate policy RP-LOGIN-30. CHG0039877."
+      },
+      {
+        "name": "Origin failover",
+        "children": [
+          {
+            "name": "Secondary origin",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "origin",
+                "options": {
+                  "cacheKeyHostname": "ORIGIN_HOSTNAME",
+                  "compress": true,
+                  "enableTrueClientIp": true,
+                  "forwardHostHeader": "ORIGIN_HOSTNAME",
+                  "hostname": "origin-online-dr.rbcdemo.ca",
+                  "httpPort": 80,
+                  "httpsPort": 443,
+                  "ipVersion": "IPV4",
+                  "minTlsVersion": "TLSV1_3",
+                  "originCertificate": "",
+                  "originSni": true,
+                  "originType": "CUSTOMER",
+                  "ports": "443",
+                  "tlsVersionTitle": "",
+                  "trueClientIpClientSetting": false,
+                  "trueClientIpHeader": "True-Client-IP",
+                  "verificationMode": "PLATFORM_SETTINGS"
+                }
+              },
+              {
+                "name": "originFailureRecoveryPolicy",
+                "options": {
+                  "enabled": true,
+                  "failureRetryTime": 60,
+                  "maxRetries": 2,
+                  "retryMethods": [
+                    "GET"
+                  ]
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "matchVariable",
+                "options": {
+                  "matchVariableName": "PMUSER_ORIGIN_FAIL",
+                  "matchOperator": "IS",
+                  "matchExpression": "DR"
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": "Flip PMUSER_ORIGIN_FAIL=DR during primary DC maintenance."
+          }
+        ],
+        "behaviors": [],
+        "criteria": [],
+        "criteriaMustSatisfy": "all",
+        "comment": "Failover orchestrated via PMUSER_ORIGIN_FAIL."
+      },
+      {
+        "name": "Blocked file types",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "denyAccess",
+            "options": {
+              "enabled": true,
+              "reason": "FILE_TYPE"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "fileExtension",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "exe",
+                "msi",
+                "bat",
+                "ps1"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "XHR / service calls",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "NO_STORE",
+              "mustRevalidate": false,
+              "ttl": "0s",
+              "enhancedRfc": false
+            }
+          },
+          {
+            "name": "allowPost",
+            "options": {
+              "allowWithoutContentLength": false,
+              "enabled": true
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/svc/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          },
+          {
+            "name": "requestHeader",
+            "options": {
+              "headerName": "x-requested-with",
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "XMLHttpRequest"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Device profiling",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "setVariable",
+            "options": {
+              "variableName": "PMUSER_DEVICE_KNOWN",
+              "valueSource": "EXPRESSION",
+              "variableValue": "1",
+              "transform": "NONE"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "cookie",
+            "options": {
+              "cookieName": "devprof",
+              "matchOperator": "IS_DEFINED"
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Feeds the risk engine upstream."
+      }
+    ],
+    "behaviors": [
+      {
+        "name": "origin",
+        "options": {
+          "cacheKeyHostname": "ORIGIN_HOSTNAME",
+          "compress": true,
+          "enableTrueClientIp": true,
+          "forwardHostHeader": "REQUEST_HOST_HEADER",
+          "hostname": "origin-online.rbcdemo.ca",
+          "httpPort": 80,
+          "httpsPort": 443,
+          "ipVersion": "IPV4",
+          "minTlsVersion": "TLSV1_2",
+          "originCertificate": "",
+          "originSni": true,
+          "originType": "CUSTOMER",
+          "ports": "443",
+          "tlsVersionTitle": "",
+          "trueClientIpClientSetting": false,
+          "trueClientIpHeader": "True-Client-IP",
+          "verificationMode": "CUSTOM",
+          "customValidCnValues": [
+            "{{Origin Hostname}}",
+            "{{Forward Host Header}}"
+          ],
+          "originCertsToHonor": "STANDARD_CERTIFICATE_AUTHORITIES",
+          "standardCertificateAuthorities": [
+            "akamai-perimeter"
+          ]
+        }
+      },
+      {
+        "name": "cpCode",
+        "options": {
+          "id": 92602,
+          "name": "online.rbcdemo.ca-cpcode"
+        }
+      },
+      {
+        "name": "caching",
+        "options": {
+          "behavior": "MAX_AGE",
+          "mustRevalidate": false,
+          "ttl": "4h",
+          "enhancedRfc": false,
+          "honorBrowserTtl": false,
+          "sendTrueClientIpHeader": false
+        }
+      },
+      {
+        "name": "sureRoute",
+        "options": {
+          "enabled": true,
+          "srStatisticalMethod": "ALPHA",
+          "testObjectUrl": "/akamai/sureroute-test-object.html",
+          "toAlternate": true,
+          "alternateHostname": "online.rbcdemo.ca-sr-alt.rbcdemo.ca"
+        }
+      },
+      {
+        "name": "tieredDistribution",
+        "options": {
+          "enabled": false,
+          "tieredDistributionMap": "CH2"
+        }
+      },
+      {
+        "name": "prefetch",
+        "options": {
+          "enabled": false
+        }
+      },
+      {
+        "name": "allowPost",
+        "options": {
+          "allowWithoutContentLength": false,
+          "enabled": true
+        }
+      },
+      {
+        "name": "http2",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "http3",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "gzipResponse",
+        "options": {
+          "behavior": "ALWAYS"
+        }
+      },
+      {
+        "name": "report",
+        "options": {
+          "logHost": false,
+          "logReferer": true,
+          "logUserAgent": true,
+          "logAcceptLanguage": false,
+          "logCookies": "OFF",
+          "logCustomLogField": false
+        }
+      },
+      {
+        "name": "mPulse",
+        "options": {
+          "enabled": true,
+          "apiKey": "",
+          "bufferSize": "",
+          "requirePci": false,
+          "titleOverride": ""
+        }
+      },
+      {
+        "name": "webApplicationFirewall",
+        "options": {
+          "enable": true
+        }
+      },
+      {
+        "name": "adaptiveAcceleration",
+        "options": {
+          "enablePreconnect": true,
+          "enablePreload": false,
+          "enablePush": false,
+          "enableRo": true,
+          "enableBrotliCompression": true,
+          "enableDnsPrefetch": true,
+          "enableForNoncacheable": false,
+          "mPulseBpulseLoaderSnippetVersion": "v12",
+          "source": "mPulse"
+        }
+      },
+      {
+        "name": "enhancedAkamaiProtocol",
+        "options": {
+          "display": "OFF",
+          "enabled": true
+        }
+      },
+      {
+        "name": "removeVary",
+        "options": {
+          "enabled": false
+        }
+      },
+      {
+        "name": "modifyOutgoingResponseHeader",
+        "options": {
+          "action": "ADD",
+          "customHeaderName": "Strict-Transport-Security",
+          "customHeaderValue": "max-age=31536000; includeSubDomains",
+          "standardModifyHeaderName": "OTHER"
+        }
+      },
+      {
+        "name": "modifyOutgoingResponseHeader",
+        "options": {
+          "action": "ADD",
+          "customHeaderName": "X-Content-Type-Options",
+          "customHeaderValue": "nosniff",
+          "standardModifyHeaderName": "OTHER"
+        }
+      },
+      {
+        "name": "cacheKeyQueryParams",
+        "options": {
+          "behavior": "EXCLUDE_ALL",
+          "exactMatch": true,
+          "parameters": []
+        }
+      },
+      {
+        "name": "datastream",
+        "options": {
+          "enabled": true,
+          "logStreamName": "rbcdemo-edge-logs",
+          "streamType": "COMPLETE_LOGS"
+        }
+      }
+    ],
+    "options": {
+      "is_secure": true
+    },
+    "variables": [
+      {
+        "name": "PMUSER_ORIGIN_FAIL",
+        "value": "PRIMARY",
+        "description": "Set DR to fail over to secondary origin",
+        "hidden": false,
+        "sensitive": false
+      },
+      {
+        "name": "PMUSER_SESSION_TOUCH",
+        "value": "0",
+        "description": "Session renewal marker",
+        "hidden": false,
+        "sensitive": false
+      },
+      {
+        "name": "PMUSER_DEVICE_KNOWN",
+        "value": "0",
+        "description": "Device profiling marker",
+        "hidden": false,
+        "sensitive": false
+      }
+    ]
+  }
+}

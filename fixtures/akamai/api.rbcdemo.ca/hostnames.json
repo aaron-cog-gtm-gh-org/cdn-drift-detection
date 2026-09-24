@@ -1,0 +1,20 @@
+{
+  "accountId": "act_1-2ABCDE",
+  "contractId": "ctr_C-0N7RAC7",
+  "groupId": "grp_98765",
+  "propertyId": "prp_534210",
+  "propertyVersion": 19,
+  "etag": "a1b2c3d4e5f6hostnames19",
+  "hostnames": {
+    "items": [
+      {
+        "cnameType": "EDGE_HOSTNAME",
+        "edgeHostnameId": "ehn_4718304",
+        "cnameFrom": "api.rbcdemo.ca",
+        "cnameTo": "api-rbcdemo-ca.edgekey.net",
+        "certProvisioningType": "CPS_MANAGED"
+      }
+    ]
+  },
+  "hostnames.nextLink": null
+}

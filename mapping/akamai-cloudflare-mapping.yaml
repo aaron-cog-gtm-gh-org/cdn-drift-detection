@@ -1,0 +1,992 @@
+# Semantic field mapping: Akamai Ion (PAPI rule format v2023-01-05) vs Cloudflare v4 API.
+#
+# Each field names where the equivalent setting lives on both providers and in the
+# golden state. `golden.path` resolves against golden/<domain>/rules/rules.json
+# (the intended Akamai rule tree); `golden.literal` / `golden.values` carry the
+# intended value directly for Cloudflare-only fields — the same intent is
+# expressed as HCL in golden/<domain>/main.tf.
+#
+# Comparators: exact, bool_eq, numeric_eq, numeric_ge, duration_eq, set_equal,
+# semantic_enum, semantic_enum_ge, presence, regex_equivalent.
+#
+# `allow_absent: true` means an unresolved provider path is a *migration gap*
+# finding (route: human), not drift and not a validation error.
+# `unsupported: true` means the provider cannot express the field — the field
+# can only ever produce a migration gap, never drift.
+version: "2026.09.1"
+rule_format: "v2023-01-05"
+
+# Provider defaults applied when the other side omits the field entirely.
+# This is the false-positive suppression layer: a Cloudflare zone-settings
+# response that simply does not list a setting at its stock value must not
+# produce a finding.
+defaults:
+  cloudflare_settings:
+    http2: "on"
+    http3: "on"
+    brotli: "on"
+    early_hints: "on"
+    ip_geolocation: "on"
+    tls_1_3: "on"
+    always_use_https: "on"
+    development_mode: "off"
+
+value_tables:
+  tls_min_version:
+    akamai: { DYNAMIC: "1.2", TLSV1_2: "1.2", TLSV1_1: "1.1", TLSV1: "1.0", TLSV1_3: "1.3" }
+    cloudflare: { "1.0": "1.0", "1.1": "1.1", "1.2": "1.2", "1.3": "1.3" }
+  ssl_mode:
+    akamai: { SECURE: "strict", STANDARD: "flexible" }
+    cloudflare: { off: "off", flexible: "flexible", full: "full", strict: "strict" }
+  gzip_mode:
+    akamai: { ALWAYS: "on", NEVER: "off" }
+    cloudflare: { on: "on", off: "off" }
+  cache_key_mode:
+    akamai: { EXCLUDE_ALL: "none", IGNORE: "ignore_all", INCLUDE: "subset" }
+    cloudflare: { "[]": "none", "*": "ignore_all" }
+  sensitivity:
+    cloudflare: { low: "low", medium: "medium", high: "high" }
+    literal: { low: "low", medium: "medium", high: "high" }
+  polish:
+    cloudflare: { off: "off", lossless: "lossless", lossy: "lossy" }
+    literal: { off: "off", lossless: "lossless", lossy: "lossy" }
+
+fields:
+  # ---------- TLS and certificates ----------
+  - id: tls.min_version
+    description: Minimum TLS version accepted from clients
+    severity: critical
+    control_ref: "PCI-DSS 4.0 req 4.2.1"
+    owner: edge-security
+    comparator: semantic_enum_ge
+    value_table: tls_min_version
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='origin')].options.minTlsVersion"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='min_tls_version')].value"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='origin')].options.minTlsVersion"
+
+  - id: tls.ssl_mode
+    description: Cloudflare origin encryption mode (Akamai has no equivalent dial)
+    severity: critical
+    control_ref: "PCI-DSS 4.0 req 4.2.1"
+    owner: edge-security
+    comparator: semantic_enum
+    value_table: ssl_mode
+    akamai:
+      unsupported: true
+      note: "Akamai encrypts to origin per the origin behavior verificationMode; no ssl-mode equivalent"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='ssl')].value"
+    golden:
+      literal: "strict"
+
+  - id: tls.client_ciphers
+    description: TLS cipher suites offered to clients
+    severity: high
+    control_ref: "OSFI B-13 crypto hygiene"
+    owner: edge-security
+    comparator: set_equal
+    akamai:
+      unsupported: true
+      note: "Cipher selection lives in the CPS enrollment, not the property rule tree"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='ciphers')].value"
+    golden:
+      literal: ["ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-ECDSA-CHACHA20-POLY1305",
+                "ECDHE-RSA-AES128-GCM-SHA256", "ECDHE-RSA-CHACHA20-POLY1305"]
+
+  - id: tls.hsts_max_age
+    description: HSTS max-age emitted at the edge (must be >= golden)
+    severity: medium
+    control_ref: "PCI-DSS 4.0 req 4.2.1"
+    owner: edge-security
+    comparator: numeric_ge
+    extract: "max-age=(\\d+)"
+    akamai:
+      path: "$.rules.behaviors[?(@.options.customHeaderName=='Strict-Transport-Security')].options.customHeaderValue"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='HSTS')].action_parameters.headers['Strict-Transport-Security'].value"
+    golden:
+      path: "$.rules.behaviors[?(@.options.customHeaderName=='Strict-Transport-Security')].options.customHeaderValue"
+
+  # ---------- HTTP versions and protocol ----------
+  - id: http.http2
+    description: HTTP/2 to clients
+    severity: medium
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='http2')].options.enabled"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='http2')].value"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='http2')].options.enabled"
+
+  - id: http.http3
+    description: HTTP/3 (QUIC) to clients
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='http3')].options.enabled"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='http3')].value"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='http3')].options.enabled"
+
+  - id: http.zero_rtt
+    description: TLS 0-RTT early data
+    severity: medium
+    control_ref: "OSFI B-13 replay-risk guidance"
+    owner: edge-security
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='adaptiveAcceleration')].options.enableRo"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='0rtt')].value"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='adaptiveAcceleration')].options.enableRo"
+
+  - id: http.enhanced_protocol
+    description: Enhanced Akamai Protocol to origin (Akamai-only)
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='enhancedAkamaiProtocol')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare has no equivalent proprietary origin protocol"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='enhancedAkamaiProtocol')].options.enabled"
+
+  - id: http.origin_max_version
+    description: Maximum HTTP version to origin
+    severity: low
+    owner: edge-platform
+    comparator: exact
+    akamai:
+      unsupported: true
+      note: "Akamai origin HTTP version is set by product capabilities, not the rule tree"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='origin_max_http_version')].value"
+    golden:
+      literal: "2"
+
+  - id: http.websockets
+    description: WebSocket support
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Akamai WebSocket support is product-level (Ion includes it)"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='websockets')].value"
+    golden:
+      values:
+        api.rbcdemo.ca: true
+        www.rbcdemo.ca: false
+        online.rbcdemo.ca: false
+        assets.rbcdemo.ca: false
+
+  # ---------- Caching and TTLs ----------
+  - id: caching.default_ttl
+    description: Edge cache TTL applied by the default rule
+    severity: medium
+    owner: edge-platform
+    comparator: duration_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='caching')].options.ttl"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='browser_cache_ttl')].value"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='caching')].options.ttl"
+
+  - id: caching.cache_level
+    description: Cloudflare cache level (Akamai cache behavior is per-rule)
+    severity: medium
+    owner: edge-platform
+    comparator: exact
+    akamai:
+      unsupported: true
+      note: "Cache aggressiveness is expressed per-rule on Akamai, not zone-wide"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='cache_level')].value"
+    golden:
+      literal: "aggressive"
+
+  - id: caching.tiered_distribution
+    description: Akamai tiered distribution (parent caching)
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    domains: [assets.rbcdemo.ca]
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='tieredDistribution')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare tiered cache is account-level, not zone API"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='tieredDistribution')].options.enabled"
+
+  - id: caching.prefetch
+    description: Object prefetching
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='prefetch')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "No Cloudflare equivalent; closest is Early Hints + prefetch rules"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='prefetch')].options.enabled"
+
+  - id: caching.browser_revalidate
+    description: must-revalidate on cached objects
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='caching')].options.mustRevalidate"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare controls browser TTL via browser_cache_ttl, not revalidation flags"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='caching')].options.mustRevalidate"
+
+  # ---------- Cache key composition ----------
+  - id: cachekey.query_params_assets
+    description: Query parameters included in the cache key (assets)
+    severity: medium
+    owner: edge-platform
+    comparator: set_equal
+    domains: [assets.rbcdemo.ca]
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='cacheKeyQueryParams')].options.parameters"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_request_cache_settings')].rules[*].action_parameters.cache_key.custom_key.query_string.include"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='cacheKeyQueryParams')].options.parameters"
+
+  - id: cachekey.strategy_online
+    description: Online banking cache key excludes all query params
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 6.4.3 (cache poisoning surface)"
+    owner: edge-security
+    comparator: semantic_enum
+    value_table: cache_key_mode
+    domains: [online.rbcdemo.ca]
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='cacheKeyQueryParams')].options.behavior"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_request_cache_settings')].rules[*].action_parameters.cache_key.custom_key.query_string.include"
+      empty_means: "[]"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='cacheKeyQueryParams')].options.behavior"
+
+  - id: cachekey.remove_vary_api
+    description: Vary header removed so JSON caches correctly (api)
+    severity: low
+    owner: edge-platform
+    comparator: presence
+    domains: [api.rbcdemo.ca]
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='removeVary')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare ignores most Vary by default; no toggle in zone API"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='removeVary')].options.enabled"
+
+  # ---------- Compression ----------
+  - id: compression.gzip
+    description: Gzip response to clients
+    severity: low
+    owner: edge-platform
+    comparator: semantic_enum
+    value_table: gzip_mode
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='gzipResponse')].options.behavior"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare compresses automatically; brotli is the only toggle"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='gzipResponse')].options.behavior"
+
+  - id: compression.brotli
+    description: Brotli compression
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='adaptiveAcceleration')].options.enableBrotliCompression"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='brotli')].value"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='adaptiveAcceleration')].options.enableBrotliCompression"
+
+  - id: compression.image_polish
+    description: Cloudflare Polish image optimization (approximates Akamai Image Manager)
+    severity: low
+    owner: edge-platform
+    comparator: semantic_enum
+    value_table: polish
+    akamai:
+      unsupported: true
+      note: "Akamai Image Manager is a rule behavior with its own policy tokens"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='polish')].value"
+    golden:
+      values:
+        api.rbcdemo.ca: "off"
+        www.rbcdemo.ca: "lossless"
+        online.rbcdemo.ca: "lossless"
+        assets.rbcdemo.ca: "lossless"
+
+  # ---------- Origin and failover ----------
+  - id: origins.hostname_set
+    description: Complete set of origin hostnames referenced anywhere in the tree
+    severity: high
+    control_ref: "OSFI B-13 change management"
+    owner: edge-platform
+    comparator: set_equal
+    akamai:
+      path: "$..behaviors[?(@.name=='origin')].options.hostname"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare origin hostnames live in Load Balancer pools / origin rules, not in this export"
+    golden:
+      path: "$..behaviors[?(@.name=='origin')].options.hostname"
+
+  - id: origins.failover
+    description: Secondary origin failover policy (online banking)
+    severity: high
+    control_ref: "OSFI B-13 availability"
+    owner: edge-platform
+    comparator: presence
+    domains: [online.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='Origin failover')].children[*].behaviors[?(@.name=='originFailureRecoveryPolicy')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Failover is a Cloudflare Load Balancer concern; not expressed as a zone ruleset"
+    golden:
+      path: "$.rules.children[?(@.name=='Origin failover')].children[*].behaviors[?(@.name=='originFailureRecoveryPolicy')].options.enabled"
+
+  - id: origins.forward_host_header
+    description: Host header forwarded to origin
+    severity: medium
+    owner: edge-platform
+    comparator: exact
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='origin')].options.forwardHostHeader"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_request_origin')].rules[?(@.description=='Route to origin pool')].action_parameters.host_header"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='origin')].options.forwardHostHeader"
+    value_translate:
+      REQUEST_HOST_HEADER: "{domain}"
+
+  - id: origins.true_client_ip
+    description: True-Client-IP header handling end to end
+    severity: medium
+    control_ref: "OSFI B-13 logging integrity"
+    owner: edge-security
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='origin')].options.enableTrueClientIp"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='true_client_ip_header')].value"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='origin')].options.enableTrueClientIp"
+
+  # ---------- Security headers ----------
+  - id: headers.security_static
+    description: Static security headers (nosniff / DENY) via response transform
+    severity: medium
+    control_ref: "PCI-DSS 4.0 req 6.3.1 (security misconfiguration)"
+    owner: edge-security
+    comparator: presence
+    domains: [online.rbcdemo.ca]
+    akamai:
+      path: "$.rules.behaviors[?(@.options.customHeaderName=='X-Content-Type-Options')].options.customHeaderValue"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='security-headers')]"
+      allow_absent: true
+    golden:
+      literal: true
+
+  - id: headers.csp
+    description: Content-Security-Policy header on HTML (www)
+    severity: medium
+    control_ref: "PCI-DSS 4.0 req 6.4.3"
+    owner: edge-security
+    comparator: regex_equivalent
+    normalize: "strip_whitespace_quotes"
+    domains: [www.rbcdemo.ca]
+    akamai:
+      path: "$..behaviors[?(@.options.customHeaderName=='Content-Security-Policy')].options.customHeaderValue"
+    cloudflare:
+      unsupported: true
+      note: "CSP not yet expressed as a CF response-header transform on this zone"
+    golden:
+      path: "$..behaviors[?(@.options.customHeaderName=='Content-Security-Policy')].options.customHeaderValue"
+
+  # ---------- WAF and managed rulesets ----------
+  - id: waf.managed_ruleset_enabled
+    description: Managed WAF ruleset executing on all traffic
+    severity: critical
+    control_ref: "PCI-DSS 4.0 req 6.4.1"
+    owner: edge-security
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='webApplicationFirewall')].options.enable"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_request_firewall_managed')].rules[?(@.description=='Execute Cloudflare Managed Ruleset')].enabled"
+    golden:
+      literal: true
+
+  - id: waf.owasp_sensitivity
+    description: OWASP core ruleset sensitivity / paranoia level
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 6.4.1"
+    owner: edge-security
+    comparator: semantic_enum
+    value_table: sensitivity
+    akamai:
+      unsupported: true
+      note: "Akamai attack-group actions live in the App Sec export, not a per-zone sensitivity dial"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_request_firewall_managed')].rules[?(@.description=='Execute OWASP Core Ruleset')].action_parameters.overrides.sensitivity_level"
+    golden:
+      values:
+        www.rbcdemo.ca: "medium"
+        online.rbcdemo.ca: "high"
+        api.rbcdemo.ca: "high"
+        assets.rbcdemo.ca: "high"
+
+  - id: waf.edge_toggle
+    description: Zone-level WAF master switch
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 6.4.1"
+    owner: edge-security
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "WAF enablement on Akamai is in the security config, not a zone setting"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='waf')].value"
+    golden:
+      literal: true
+
+  - id: waf.appsec_global_rate
+    description: Global rate policy threshold (req/min) in the App Sec export
+    severity: medium
+    control_ref: "OSFI B-13 availability"
+    owner: edge-security
+    comparator: numeric_eq
+    domains: [www.rbcdemo.ca, online.rbcdemo.ca]
+    akamai:
+      fixture: appsec
+      path: "$.ratePolicies.items[?(@.id=='rp_9001')].averageThreshold"
+    cloudflare:
+      unsupported: true
+      note: "Global rate policy is expressed per-rule in http_ratelimit, not as one threshold"
+    golden:
+      literal: 500
+
+  # ---------- Rate limiting ----------
+  - id: ratelimit.login
+    description: Login endpoint rate limit (requests per period)
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 8.3.4 (credential-stuffing controls)"
+    owner: edge-security
+    comparator: numeric_eq
+    domains: [online.rbcdemo.ca]
+    akamai:
+      path: "$..behaviors[?(@.name=='rateLimit')].options.requestsPerPeriod"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_ratelimit')].rules[?(@.description=='Login rate limit')].ratelimit.requests_per_period"
+    golden:
+      literal: 30
+
+  - id: ratelimit.partner_api
+    description: Open-banking partner rate limit (requests/minute)
+    severity: high
+    control_ref: "OSFI B-13 third-party access"
+    owner: edge-security
+    comparator: numeric_eq
+    domains: [api.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='Partner rate policies')].children[?(@.name=='Open-banking partners')].behaviors[?(@.name=='rateLimit')].options.requestsPerPeriod"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_ratelimit')].rules[?(@.description=='Open-banking partner rate')].ratelimit.requests_per_period"
+    golden:
+      literal: 100
+
+  # ---------- Bot management ----------
+  - id: bot.edge_layer
+    description: Edge bot management layer enabled (www)
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 6.4.2"
+    owner: edge-security
+    comparator: presence
+    domains: [www.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='Bot management')].behaviors[?(@.name=='botManagement')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare Bot Management is a separate subscription product; not in rulesets export"
+    golden:
+      path: "$.rules.children[?(@.name=='Bot management')].behaviors[?(@.name=='botManagement')].options.enabled"
+
+  # ---------- Geo controls ----------
+  - id: geo.blocked_countries
+    description: Sanctioned-country geo block set
+    severity: high
+    control_ref: "OSFI B-13 / sanctions screening"
+    owner: edge-security
+    comparator: set_equal
+    domains: [www.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='Geo restrictions')].children[*].criteria[?(@.name=='userLocation')].options.values"
+      strip_prefix: "country:"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_request_firewall_custom')].rules[?(@.description=='Geo deny — sanctioned countries')].expression"
+      extract_all: "\"([A-Z]{2})\""
+    golden:
+      literal: ["KP", "IR", "CU", "SY"]
+
+  # ---------- CORS ----------
+  - id: cors.allowed_origins
+    description: CORS Access-Control-Allow-Origin set (api)
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 6.4.3"
+    owner: edge-security
+    comparator: set_equal
+    domains: [api.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='CORS preflight')].behaviors[?(@.options.customHeaderName=='Access-Control-Allow-Origin')].options.customHeaderValue"
+      split: ","
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='CORS headers')].action_parameters.headers['Access-Control-Allow-Origin'].value"
+      split: ","
+    golden:
+      literal: ["https://online.rbcdemo.ca", "https://www.rbcdemo.ca"]
+
+  - id: cors.allow_credentials
+    description: CORS Access-Control-Allow-Credentials (api)
+    severity: medium
+    owner: edge-security
+    comparator: exact
+    domains: [api.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='CORS preflight')].behaviors[?(@.options.customHeaderName=='Access-Control-Allow-Credentials')].options.customHeaderValue"
+    cloudflare:
+      fixture: rulesets
+      path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='CORS headers')].action_parameters.headers['Access-Control-Allow-Credentials'].value"
+    golden:
+      literal: "true"
+
+  # ---------- Token auth ----------
+  - id: auth.token_auth_downloads
+    description: Token authorization required on protected download paths
+    severity: high
+    control_ref: "OSFI B-13 asset integrity"
+    owner: edge-security
+    comparator: bool_eq
+    domains: [assets.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='Downloads token auth')].behaviors[?(@.name=='tokenAuthorization')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare equivalent would be signed URLs via Workers/Access; not in zone export"
+    golden:
+      path: "$.rules.children[?(@.name=='Downloads token auth')].behaviors[?(@.name=='tokenAuthorization')].options.enabled"
+
+  - id: auth.jwt_edge
+    description: JWT validated at the edge for /v2/* (api)
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 8.3.6"
+    owner: edge-security
+    comparator: presence
+    domains: [api.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='JWT validation')].behaviors[?(@.name=='jwtValidation')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "JWT validation would be a Worker/API Shield function, not a zone ruleset rule"
+    golden:
+      path: "$.rules.children[?(@.name=='JWT validation')].behaviors[?(@.name=='jwtValidation')].options.enabled"
+
+  - id: auth.api_shield_schema
+    description: Schema enforcement on payees endpoints (api)
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 6.2.4"
+    owner: edge-security
+    comparator: presence
+    domains: [api.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='Schema enforcement')].behaviors[?(@.name=='apiShield')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "CF API Shield schema validation is configured under api_shield endpoints, not rulesets"
+    golden:
+      path: "$.rules.children[?(@.name=='Schema enforcement')].behaviors[?(@.name=='apiShield')].options.enabled"
+
+  # ---------- Session / cookies ----------
+  - id: session.cookie_bypass
+    description: Cache bypass on session cookie (online)
+    severity: high
+    control_ref: "PCI-DSS 4.0 req 3.2.1 (session data must not cache)"
+    owner: edge-security
+    comparator: exact
+    domains: [online.rbcdemo.ca]
+    akamai:
+      path: "$.rules.children[?(@.name=='Session cookie handling')].behaviors[?(@.name=='caching')].options.behavior"
+    cloudflare:
+      unsupported: true
+      note: "Session-aware caching needs Cache Rules expressions; not yet expressed for online"
+    golden:
+      literal: "BYPASS"
+
+  # ---------- Operational controls ----------
+  - id: ops.maintenance_flag
+    description: Maintenance-window variable exists and is OFF
+    severity: medium
+    owner: edge-platform
+    comparator: exact
+    domains: [www.rbcdemo.ca]
+    akamai:
+      path: "$.rules.variables[?(@.name=='PMUSER_MAINTENANCE')].value"
+    cloudflare:
+      unsupported: true
+      note: "Maintenance pages are Workers/snippets on Cloudflare"
+    golden:
+      literal: "OFF"
+
+  - id: ops.observability_stream
+    description: DataStream / edge log shipping enabled
+    severity: medium
+    control_ref: "OSFI B-13 audit logging"
+    owner: edge-platform
+    comparator: presence
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='datastream')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare Logpush is account-level, not zone export"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='datastream')].options.enabled"
+
+  - id: ops.real_user_monitoring
+    description: mPulse RUM beacon
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='mPulse')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare Web Analytics / RUM is a zone-level product toggle, not a setting id"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='mPulse')].options.enabled"
+
+  - id: ops.sureroute
+    description: SureRoute alternate-path racing (www)
+    severity: low
+    owner: edge-platform
+    comparator: presence
+    domains: [www.rbcdemo.ca]
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='sureRoute')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Argo Smart Routing is the Cloudflare analogue; account-level billing feature"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='sureRoute')].options.enabled"
+
+  - id: ops.post_allowed
+    description: POST requests allowed at the edge
+    severity: medium
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      path: "$.rules.behaviors[?(@.name=='allowPost')].options.enabled"
+    cloudflare:
+      unsupported: true
+      note: "Cloudflare permits POST by default; no zone toggle"
+    golden:
+      path: "$.rules.behaviors[?(@.name=='allowPost')].options.enabled"
+
+  # ---------- Misc zone settings (Cloudflare side of the migration) ----------
+  - id: zone.always_use_https
+    description: Redirect http to https at edge
+    severity: medium
+    control_ref: "PCI-DSS 4.0 req 4.2.1"
+    owner: edge-security
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Enforced via edge hostname + redirect rule on Akamai"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='always_use_https')].value"
+    golden:
+      literal: true
+
+  - id: zone.automatic_https_rewrites
+    description: Mixed-content rewrites
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "No Akamai equivalent"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='automatic_https_rewrites')].value"
+    golden:
+      literal: true
+
+  - id: zone.opportunistic_encryption
+    description: Opportunistic encryption (HTTP/2 alt-svc)
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "No Akamai equivalent"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='opportunistic_encryption')].value"
+    golden:
+      literal: false
+
+  - id: zone.early_hints
+    description: 103 Early Hints
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Closest Akamai behaviour is adaptiveAcceleration preload"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='early_hints')].value"
+    golden:
+      values:
+        online.rbcdemo.ca: false
+        www.rbcdemo.ca: true
+        api.rbcdemo.ca: true
+        assets.rbcdemo.ca: true
+
+  - id: zone.ip_geolocation
+    description: CF-IPCountry header injection
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Akamai injects geo headers via edgeScape config"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='ip_geolocation')].value"
+    golden:
+      literal: true
+
+  - id: zone.security_level
+    description: Challenge aggressiveness
+    severity: medium
+    owner: edge-security
+    comparator: semantic_enum
+    value_table: sensitivity
+    akamai:
+      unsupported: true
+      note: "Akamai equivalent is reputation profile thresholds in appsec"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='security_level')].value"
+    golden:
+      values:
+        www.rbcdemo.ca: "medium"
+        online.rbcdemo.ca: "high"
+        api.rbcdemo.ca: "high"
+        assets.rbcdemo.ca: "high"
+
+  - id: zone.challenge_ttl
+    description: Challenge-passage TTL (seconds)
+    severity: low
+    owner: edge-security
+    comparator: numeric_eq
+    akamai:
+      unsupported: true
+      note: "Akamai bot challenge lifetime is in Bot Manager policy"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='challenge_ttl')].value"
+    golden:
+      literal: 1800
+
+  - id: zone.development_mode
+    description: Development mode must stay off
+    severity: medium
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Akamai equivalent is staging network"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='development_mode')].value"
+    golden:
+      literal: false
+
+  - id: zone.ipv6
+    description: IPv6 to clients
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Akamai IPv6 is an edge-hostname property"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='ipv6')].value"
+    golden:
+      literal: true
+
+  - id: zone.email_obfuscation
+    description: Email obfuscation for public pages
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "No Akamai equivalent"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='email_obfuscation')].value"
+    golden:
+      values:
+        online.rbcdemo.ca: false
+        www.rbcdemo.ca: true
+        api.rbcdemo.ca: true
+        assets.rbcdemo.ca: true
+
+  - id: zone.hotlink_protection
+    description: Hotlink protection on static assets
+    severity: low
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Akamai equivalent is referer-based criteria rules"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='hotlink_protection')].value"
+    golden:
+      values:
+        assets.rbcdemo.ca: true
+        www.rbcdemo.ca: false
+        online.rbcdemo.ca: false
+        api.rbcdemo.ca: false
+
+  - id: zone.tls13
+    description: TLS 1.3 to clients
+    severity: medium
+    control_ref: "PCI-DSS 4.0 req 4.2.1"
+    owner: edge-security
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Akamai TLS1.3 comes from the CPS/enrollment cipher profile"
+    cloudflare:
+      fixture: settings
+      path: "$.result[?(@.id=='tls_1_3')].value"
+    golden:
+      literal: true
+
+  # ---------- DNS ----------
+  - id: dns.edge_cname
+    description: Edge CNAME chain intact while the domain stays Akamai-primary
+    severity: high
+    control_ref: "OSFI B-13 change management"
+    owner: edge-platform
+    comparator: exact
+    domains: [online.rbcdemo.ca, assets.rbcdemo.ca]
+    akamai:
+      fixture: hostnames
+      path: "$.hostnames.items[?(@.cnameFrom=='{domain}')].cnameTo"
+    cloudflare:
+      fixture: dns_records
+      path: "$.result[?(@.name=='{domain}')].content"
+    golden:
+      values:
+        online.rbcdemo.ca: "online-rbcdemo-ca.edgekey.net"
+        assets.rbcdemo.ca: "assets-rbcdemo-ca.edgekey.net"
+
+  - id: dns.origin_ip
+    description: Origin A record for CF-primary zones
+    severity: high
+    control_ref: "OSFI B-13 change management"
+    owner: edge-platform
+    comparator: exact
+    domains: [www.rbcdemo.ca, api.rbcdemo.ca]
+    akamai:
+      unsupported: true
+      note: "CF-primary zones front via Cloudflare; Akamai property hostnames still emit the edgekey CNAME"
+    cloudflare:
+      fixture: dns_records
+      path: "$.result[?(@.name=='{domain}')].content"
+    golden:
+      values:
+        www.rbcdemo.ca: "203.0.113.10"
+        api.rbcdemo.ca: "203.0.113.20"
+
+  - id: dns.proxied
+    description: Whether the hostname record is proxied through Cloudflare
+    severity: medium
+    owner: edge-platform
+    comparator: bool_eq
+    akamai:
+      unsupported: true
+      note: "Proxy/DNS-only is a Cloudflare concept"
+    cloudflare:
+      fixture: dns_records
+      path: "$.result[?(@.name=='{domain}')].proxied"
+    golden:
+      values:
+        www.rbcdemo.ca: true
+        api.rbcdemo.ca: true
+        online.rbcdemo.ca: false
+        assets.rbcdemo.ca: false

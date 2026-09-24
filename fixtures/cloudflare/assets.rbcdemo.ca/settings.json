@@ -1,0 +1,168 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "id": "ssl",
+      "value": "strict",
+      "modified_on": "2026-01-10T01:20:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "min_tls_version",
+      "value": "1.2",
+      "modified_on": "2026-02-11T02:21:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "tls_1_3",
+      "value": "on",
+      "modified_on": "2026-03-12T03:22:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "always_use_https",
+      "value": "on",
+      "modified_on": "2026-04-13T04:23:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "automatic_https_rewrites",
+      "value": "on",
+      "modified_on": "2026-05-14T01:24:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "opportunistic_encryption",
+      "value": "off",
+      "modified_on": "2026-06-15T02:25:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "http3",
+      "value": "off",
+      "modified_on": "2026-08-17T04:21:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "0rtt",
+      "value": "on",
+      "modified_on": "2026-01-18T01:22:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "brotli",
+      "value": "on",
+      "modified_on": "2026-02-10T02:23:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "browser_cache_ttl",
+      "value": 14400,
+      "modified_on": "2026-03-11T03:24:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "cache_level",
+      "value": "aggressive",
+      "modified_on": "2026-04-12T04:25:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "development_mode",
+      "value": "off",
+      "modified_on": "2026-05-13T01:20:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "security_level",
+      "value": "high",
+      "modified_on": "2026-06-14T02:21:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "challenge_ttl",
+      "value": 1800,
+      "modified_on": "2026-07-15T03:22:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "websockets",
+      "value": "off",
+      "modified_on": "2026-08-16T04:23:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "ip_geolocation",
+      "value": "on",
+      "modified_on": "2026-01-17T01:24:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "true_client_ip_header",
+      "value": "on",
+      "modified_on": "2026-02-18T02:25:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "waf",
+      "value": "on",
+      "modified_on": "2026-03-10T03:20:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "ciphers",
+      "value": [
+        "ECDHE-ECDSA-AES128-GCM-SHA256",
+        "ECDHE-ECDSA-CHACHA20-POLY1305",
+        "ECDHE-RSA-AES128-GCM-SHA256",
+        "ECDHE-RSA-CHACHA20-POLY1305"
+      ],
+      "modified_on": "2026-04-11T04:21:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "origin_max_http_version",
+      "value": "2",
+      "modified_on": "2026-05-12T01:22:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "polish",
+      "value": "lossless",
+      "modified_on": "2026-06-13T02:23:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "websockets_log",
+      "value": "off",
+      "modified_on": "2026-07-14T03:24:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "email_obfuscation",
+      "value": "on",
+      "modified_on": "2026-08-15T04:25:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "hotlink_protection",
+      "value": "on",
+      "modified_on": "2026-01-16T01:20:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "ipv6",
+      "value": "on",
+      "modified_on": "2026-02-17T02:21:00.000000Z",
+      "editable": true
+    },
+    {
+      "id": "early_hints",
+      "value": "on",
+      "modified_on": "2026-03-18T03:22:00.000000Z",
+      "editable": true
+    }
+  ]
+}

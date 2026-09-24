@@ -1,0 +1,481 @@
+{
+  "rules": {
+    "name": "default",
+    "children": [
+      {
+        "name": "CORS preflight",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "constructResponse",
+            "options": {
+              "enabled": true,
+              "responseCode": 204,
+              "body": "",
+              "evolv": "",
+              "forceEvolution": false
+            }
+          },
+          {
+            "name": "modifyOutgoingResponseHeader",
+            "options": {
+              "action": "ADD",
+              "customHeaderName": "Access-Control-Allow-Origin",
+              "customHeaderValue": "https://online.rbcdemo.ca, https://www.rbcdemo.ca",
+              "standardModifyHeaderName": "OTHER"
+            }
+          },
+          {
+            "name": "modifyOutgoingResponseHeader",
+            "options": {
+              "action": "ADD",
+              "customHeaderName": "Access-Control-Allow-Credentials",
+              "customHeaderValue": "true",
+              "standardModifyHeaderName": "OTHER"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "requestMethod",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "OPTIONS"
+              ]
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Preflight answered at edge; origins list mirrors CF response transform."
+      },
+      {
+        "name": "JWT validation",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "jwtValidation",
+            "options": {
+              "enabled": true,
+              "jwksUri": "https://idp.rbcdemo.ca/.well-known/jwks.json",
+              "audience": "rbcdemo-mobile",
+              "requiredClaims": [
+                "sub",
+                "exp",
+                "iss"
+              ]
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/v2/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Edge JWT gate ahead of origin \u2014 requiredClaims kept in sync with IdP team."
+      },
+      {
+        "name": "Partner rate policies",
+        "children": [
+          {
+            "name": "Open-banking partners",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "rateLimit",
+                "options": {
+                  "enabled": true,
+                  "requestsPerPeriod": 100,
+                  "period": "60s",
+                  "action": "DENY",
+                  "burstAllowance": 50
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "path",
+                "options": {
+                  "matchOperator": "MATCHES_ONE_OF",
+                  "values": [
+                    "/open-banking/*"
+                  ],
+                  "matchCaseSensitive": false
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": "Partner rate policy: 100 req/min per EDG-1988."
+          },
+          {
+            "name": "Mobile app",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "rateLimit",
+                "options": {
+                  "enabled": true,
+                  "requestsPerPeriod": 600,
+                  "period": "60s",
+                  "action": "ALERT",
+                  "burstAllowance": 100
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "requestHeader",
+                "options": {
+                  "headerName": "x-rbcdemo-app",
+                  "matchOperator": "IS_DEFINED"
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": ""
+          }
+        ],
+        "behaviors": [],
+        "criteria": [],
+        "criteriaMustSatisfy": "all",
+        "comment": "Per-endpoint rate policies; canonical values live in golden."
+      },
+      {
+        "name": "Schema enforcement",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "apiShield",
+            "options": {
+              "enabled": true,
+              "schemaId": "sch_payees_v3",
+              "action": "BLOCK"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/v2/payees*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Mirrors API Shield schema enforcement; violations to SIEM."
+      },
+      {
+        "name": "JSON compression",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "gzipResponse",
+            "options": {
+              "behavior": "ALWAYS"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "requestHeader",
+            "options": {
+              "headerName": "content-type",
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "application/json*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Version pinning",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "cacheKeyQueryParams",
+            "options": {
+              "behavior": "IGNORE",
+              "exactMatch": true,
+              "parameters": []
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "requestHeader",
+            "options": {
+              "headerName": "accept-version",
+              "matchOperator": "IS_DEFINED"
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Token endpoint",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "NO_STORE",
+              "mustRevalidate": false,
+              "ttl": "0s",
+              "enhancedRfc": false
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/oauth/token"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Billing APIs",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "rateLimit",
+            "options": {
+              "enabled": true,
+              "requestsPerPeriod": 120,
+              "period": "60s",
+              "action": "DENY",
+              "burstAllowance": 10
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/v2/billing/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      }
+    ],
+    "behaviors": [
+      {
+        "name": "origin",
+        "options": {
+          "cacheKeyHostname": "ORIGIN_HOSTNAME",
+          "compress": true,
+          "enableTrueClientIp": true,
+          "forwardHostHeader": "REQUEST_HOST_HEADER",
+          "hostname": "origin-api.rbcdemo.ca",
+          "httpPort": 80,
+          "httpsPort": 443,
+          "ipVersion": "IPV4",
+          "minTlsVersion": "TLSV1_2",
+          "originCertificate": "",
+          "originSni": true,
+          "originType": "CUSTOMER",
+          "ports": "443",
+          "tlsVersionTitle": "",
+          "trueClientIpClientSetting": false,
+          "trueClientIpHeader": "True-Client-IP",
+          "verificationMode": "CUSTOM",
+          "customValidCnValues": [
+            "{{Origin Hostname}}",
+            "{{Forward Host Header}}"
+          ],
+          "originCertsToHonor": "STANDARD_CERTIFICATE_AUTHORITIES",
+          "standardCertificateAuthorities": [
+            "akamai-perimeter"
+          ]
+        }
+      },
+      {
+        "name": "cpCode",
+        "options": {
+          "id": 92603,
+          "name": "api.rbcdemo.ca-cpcode"
+        }
+      },
+      {
+        "name": "caching",
+        "options": {
+          "behavior": "MAX_AGE",
+          "mustRevalidate": false,
+          "ttl": "4h",
+          "enhancedRfc": false,
+          "honorBrowserTtl": false,
+          "sendTrueClientIpHeader": false
+        }
+      },
+      {
+        "name": "sureRoute",
+        "options": {
+          "enabled": true,
+          "srStatisticalMethod": "ALPHA",
+          "testObjectUrl": "/akamai/sureroute-test-object.html",
+          "toAlternate": false,
+          "alternateHostname": ""
+        }
+      },
+      {
+        "name": "tieredDistribution",
+        "options": {
+          "enabled": false,
+          "tieredDistributionMap": "CH2"
+        }
+      },
+      {
+        "name": "prefetch",
+        "options": {
+          "enabled": false
+        }
+      },
+      {
+        "name": "allowPost",
+        "options": {
+          "allowWithoutContentLength": false,
+          "enabled": true
+        }
+      },
+      {
+        "name": "http2",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "http3",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "gzipResponse",
+        "options": {
+          "behavior": "ALWAYS"
+        }
+      },
+      {
+        "name": "report",
+        "options": {
+          "logHost": false,
+          "logReferer": true,
+          "logUserAgent": true,
+          "logAcceptLanguage": false,
+          "logCookies": "OFF",
+          "logCustomLogField": false
+        }
+      },
+      {
+        "name": "mPulse",
+        "options": {
+          "enabled": false,
+          "apiKey": "",
+          "bufferSize": "",
+          "requirePci": false,
+          "titleOverride": ""
+        }
+      },
+      {
+        "name": "webApplicationFirewall",
+        "options": {
+          "enable": true
+        }
+      },
+      {
+        "name": "adaptiveAcceleration",
+        "options": {
+          "enablePreconnect": true,
+          "enablePreload": false,
+          "enablePush": false,
+          "enableRo": true,
+          "enableBrotliCompression": true,
+          "enableDnsPrefetch": true,
+          "enableForNoncacheable": false,
+          "mPulseBpulseLoaderSnippetVersion": "v12",
+          "source": "mPulse"
+        }
+      },
+      {
+        "name": "enhancedAkamaiProtocol",
+        "options": {
+          "display": "OFF",
+          "enabled": false
+        }
+      },
+      {
+        "name": "removeVary",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "modifyOutgoingResponseHeader",
+        "options": {
+          "action": "ADD",
+          "customHeaderName": "Strict-Transport-Security",
+          "customHeaderValue": "max-age=31536000; includeSubDomains",
+          "standardModifyHeaderName": "OTHER"
+        }
+      },
+      {
+        "name": "cacheKeyQueryParams",
+        "options": {
+          "behavior": "IGNORE",
+          "exactMatch": true,
+          "parameters": []
+        }
+      },
+      {
+        "name": "datastream",
+        "options": {
+          "enabled": true,
+          "logStreamName": "rbcdemo-edge-logs",
+          "streamType": "COMPLETE_LOGS"
+        }
+      }
+    ],
+    "options": {
+      "is_secure": true
+    },
+    "variables": [
+      {
+        "name": "PMUSER_PARTNER_TIER",
+        "value": "STANDARD",
+        "description": "Partner tier for rate policy",
+        "hidden": false,
+        "sensitive": false
+      }
+    ]
+  }
+}

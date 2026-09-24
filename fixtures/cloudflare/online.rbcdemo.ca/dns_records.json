@@ -1,0 +1,42 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "id": "789abcdef0123456789abcdef0123456",
+      "type": "CNAME",
+      "name": "online.rbcdemo.ca",
+      "content": "online-rbcdemo-ca.edgekey.net",
+      "proxied": false,
+      "ttl": 1,
+      "comment": "Akamai-primary; CF cutover pending",
+      "created_on": "2026-03-14T18:30:00.000000Z",
+      "modified_on": "2026-07-02T11:12:00.000000Z",
+      "settings": {
+        "flatten_cname": false
+      },
+      "tags": []
+    },
+    {
+      "id": "ef0123456789abcdef0123456789abcd",
+      "type": "TXT",
+      "name": "rbcdemo.ca",
+      "content": "\"v=spf1 include:rbcdemo-mail.ca -all\"",
+      "proxied": false,
+      "ttl": 300,
+      "comment": "SPF",
+      "created_on": "2026-03-14T18:31:00.000000Z",
+      "modified_on": "2026-03-14T18:31:00.000000Z",
+      "settings": {},
+      "tags": []
+    }
+  ],
+  "result_info": {
+    "page": 1,
+    "per_page": 100,
+    "count": 2,
+    "total_count": 2,
+    "total_pages": 1
+  }
+}

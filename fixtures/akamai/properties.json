@@ -1,0 +1,60 @@
+{
+  "accountId": "act_1-2ABCDE",
+  "contractId": "ctr_C-0N7RAC7",
+  "properties": {
+    "items": [
+      {
+        "propertyId": "prp_512345",
+        "propertyName": "www.rbcdemo.ca",
+        "productionVersion": 47,
+        "stagingVersion": 47,
+        "latestVersion": 47,
+        "contractId": "ctr_C-0N7RAC7",
+        "groupId": "grp_98765",
+        "productId": "prd_Ion",
+        "ruleFormat": "v2023-01-05",
+        "assetId": "aid_3010",
+        "note": "www.rbcdemo.ca property"
+      },
+      {
+        "propertyId": "prp_523001",
+        "propertyName": "online.rbcdemo.ca",
+        "productionVersion": 31,
+        "stagingVersion": 31,
+        "latestVersion": 31,
+        "contractId": "ctr_C-0N7RAC7",
+        "groupId": "grp_98765",
+        "productId": "prd_Ion",
+        "ruleFormat": "v2023-01-05",
+        "assetId": "aid_3011",
+        "note": "online.rbcdemo.ca property"
+      },
+      {
+        "propertyId": "prp_534210",
+        "propertyName": "api.rbcdemo.ca",
+        "productionVersion": 19,
+        "stagingVersion": 19,
+        "latestVersion": 19,
+        "contractId": "ctr_C-0N7RAC7",
+        "groupId": "grp_98765",
+        "productId": "prd_Ion",
+        "ruleFormat": "v2023-01-05",
+        "assetId": "aid_3012",
+        "note": "api.rbcdemo.ca property"
+      },
+      {
+        "propertyId": "prp_540077",
+        "propertyName": "assets.rbcdemo.ca",
+        "productionVersion": 12,
+        "stagingVersion": 12,
+        "latestVersion": 12,
+        "contractId": "ctr_C-0N7RAC7",
+        "groupId": "grp_98765",
+        "productId": "prd_Ion",
+        "ruleFormat": "v2023-01-05",
+        "assetId": "aid_3013",
+        "note": "assets.rbcdemo.ca property"
+      }
+    ]
+  }
+}
