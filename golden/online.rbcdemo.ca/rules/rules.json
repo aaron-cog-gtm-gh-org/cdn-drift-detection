@@ -140,45 +140,6 @@
         "comment": "2y HSTS + preload per sec architecture review."
       },
       {
-        "name": "Login rate limiting",
-        "children": [],
-        "behaviors": [
-          {
-            "name": "rateLimit",
-            "options": {
-              "enabled": true,
-              "requestsPerPeriod": 30,
-              "period": "60s",
-              "action": "DENY",
-              "burstAllowance": 5
-            }
-          }
-        ],
-        "criteria": [
-          {
-            "name": "path",
-            "options": {
-              "matchOperator": "MATCHES_ONE_OF",
-              "values": [
-                "/auth/login"
-              ],
-              "matchCaseSensitive": false
-            }
-          },
-          {
-            "name": "requestMethod",
-            "options": {
-              "matchOperator": "IS_ONE_OF",
-              "values": [
-                "POST"
-              ]
-            }
-          }
-        ],
-        "criteriaMustSatisfy": "all",
-        "comment": "Mirrors App & API Protector rate policy RP-LOGIN-30. CHG0039877."
-      },
-      {
         "name": "Origin failover",
         "children": [
           {

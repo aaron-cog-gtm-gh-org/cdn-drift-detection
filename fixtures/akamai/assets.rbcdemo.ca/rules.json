@@ -15,15 +15,15 @@
         "children": [],
         "behaviors": [
           {
-            "name": "tokenAuthorization",
+            "name": "verifyTokenAuthorization",
             "options": {
               "enabled": false,
-              "hmacKey": "TRANSIENT",
-              "hmacAlgorithm": "SHA256",
-              "tokenName": "__token",
+              "key": "TRANSIENT",
               "salt": "",
+              "location": "QUERY_STRING",
+              "locationName": "__token",
               "escapeEarly": true,
-              "stripToken": true
+              "advanced": false
             }
           }
         ],
@@ -199,10 +199,11 @@
         ],
         "behaviors": [
           {
-            "name": "imageAndVideoManager",
+            "name": "imageManager",
             "options": {
               "enabled": true,
-              "policyTokenDefault": "rbcdemo-assets-im"
+              "policyTokenDefault": "rbcdemo-assets-im",
+              "applyBestFileType": true
             }
           }
         ],

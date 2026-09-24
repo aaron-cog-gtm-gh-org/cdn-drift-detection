@@ -1,33 +1,25 @@
 {
-  "configId": "waf_90010",
-  "configName": "www.rbcdemo.ca security config",
-  "configVersion": 17,
+  "configId": "waf_90011",
+  "configName": "online.rbcdemo.ca security config",
+  "configVersion": 23,
   "productionStatus": "ACTIVATED",
   "securityPolicies": [
     {
-      "id": "pol_www_1",
+      "id": "pol_online_1",
       "name": "Default policy",
       "hostnames": [
-        "www.rbcdemo.ca"
+        "online.rbcdemo.ca"
       ],
       "defaultProfile": "web_default_v2"
-    },
-    {
-      "id": "pol_www_2",
-      "name": "API policy",
-      "hostnames": [
-        "www.rbcdemo.ca"
-      ],
-      "defaultProfile": "api_default_v1"
     }
   ],
   "matchTargets": {
     "items": [
       {
-        "targetId": "tgt_pol_www",
+        "targetId": "tgt_pol_online",
         "type": "website",
         "hostnames": [
-          "www.rbcdemo.ca"
+          "online.rbcdemo.ca"
         ],
         "bypassNetworkLists": [
           {
@@ -68,7 +60,7 @@
         },
         {
           "group": "PROTO",
-          "action": "alert"
+          "action": "deny"
         },
         {
           "group": "POLICY",
@@ -84,7 +76,7 @@
           {
             "type": "hostname",
             "operator": "DOES_NOT_MATCH",
-            "value": "www.rbcdemo.ca"
+            "value": "online.rbcdemo.ca"
           }
         ],
         "action": "deny"
@@ -113,13 +105,25 @@
         "period": 60,
         "action": "deny",
         "matchType": "ALL_REQUESTS"
+      },
+      {
+        "id": "rp_9002",
+        "name": "Login rate policy",
+        "averageThreshold": 30,
+        "burstThreshold": 5,
+        "period": 60,
+        "action": "deny",
+        "matchType": "PATH",
+        "pathMatch": [
+          "/auth/login"
+        ]
       }
     ]
   },
   "slowPostProtection": {
     "enabled": true,
     "slowRate": "10bps",
-    "action": "alert"
+    "action": "deny"
   },
   "reputationProfiles": {
     "items": [
@@ -161,15 +165,6 @@
           "SY"
         ]
       }
-    ]
-  },
-  "botManagement": {
-    "enabled": true,
-    "product": "BOT_MANAGEMENT_PREMIER",
-    "botEndpointCoverage": [
-      "/signin",
-      "/auth/*",
-      "/promo/*"
     ]
   }
 }

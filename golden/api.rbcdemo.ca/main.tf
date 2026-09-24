@@ -75,6 +75,35 @@ resource "akamai_property_activation" "api_production" {
   }
 }
 
+locals {
+  appsec_config = jsondecode(file("${path.module}/appsec/security-config.json"))
+}
+
+resource "akamai_appsec_configuration" "api" {
+  name        = "api.rbcdemo.ca security config"
+  description = "WAF config for api.rbcdemo.ca"
+  contract_id = "ctr_C-0N7RAC7"
+  group_id    = "grp_98765"
+  host_names  = ["api.rbcdemo.ca"]
+}
+
+resource "akamai_appsec_security_policy" "api_default" {
+  config_id              = akamai_appsec_configuration.api.config_id
+  security_policy_name   = "API policy"
+  security_policy_prefix = "RB1"
+}
+
+resource "akamai_appsec_rate_policy" "api_global" {
+  config_id   = akamai_appsec_configuration.api.config_id
+  rate_policy = jsonencode({ for p in local.appsec_config.ratePolicies.items : p.id => p }["rp_9001"])
+}
+
+resource "akamai_appsec_rate_policy" "api_partner" {
+  config_id   = akamai_appsec_configuration.api.config_id
+  rate_policy = jsonencode({ for p in local.appsec_config.ratePolicies.items : p.id => p }["rp_partner"])
+}
+
+
 # ---------- Cloudflare ----------
 
 resource "cloudflare_zone_setting" "api_ssl" {

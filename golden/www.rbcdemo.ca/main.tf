@@ -75,6 +75,10 @@ resource "akamai_property_activation" "www_production" {
   }
 }
 
+locals {
+  appsec_config = jsondecode(file("${path.module}/appsec/security-config.json"))
+}
+
 resource "akamai_appsec_configuration" "www" {
   name        = "www.rbcdemo.ca security config"
   description = "WAF config for www.rbcdemo.ca"
@@ -88,6 +92,12 @@ resource "akamai_appsec_security_policy" "www_default" {
   security_policy_name   = "Default policy"
   security_policy_prefix = "RB1"
 }
+
+resource "akamai_appsec_rate_policy" "www_global" {
+  config_id   = akamai_appsec_configuration.www.config_id
+  rate_policy = jsonencode({ for p in local.appsec_config.ratePolicies.items : p.id => p }["rp_9001"])
+}
+
 
 # ---------- Cloudflare ----------
 

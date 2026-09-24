@@ -219,8 +219,14 @@ def main():
                 errors.append(f"unparseable JSON {p}: {e}")
     load_json(REPO / "fixtures" / "akamai" / "properties.json")
     golden_cache = {}
-    for d in DOMAINS:
-        golden_cache[d] = load_json(REPO / "golden" / d / "rules" / "rules.json")
+
+    def golden_doc(domain, fixture_name):
+        rel = {"rules": "rules/rules.json",
+               "appsec": "appsec/security-config.json"}[fixture_name]
+        key = (domain, fixture_name)
+        if key not in golden_cache:
+            golden_cache[key] = load_json(REPO / "golden" / domain / rel)
+        return golden_cache[key]
 
     findings = []
     path_report = []
@@ -233,8 +239,8 @@ def main():
             g = field["golden"]
             if "path" in g:
                 golden_vals = apply_side_transforms(
-                    resolve(g["path"], golden_cache[d], d), {}, d, field)
-                golden_key = "akamai"  # golden tree is Akamai-shaped
+                    resolve(g["path"], golden_doc(d, g.get("fixture", "rules")), d), {}, d, field)
+                golden_key = "akamai"  # golden docs are Akamai-shaped
                 if not golden_vals:
                     errors.append(f"{fid}: golden path resolves to nothing on {d}")
                     continue

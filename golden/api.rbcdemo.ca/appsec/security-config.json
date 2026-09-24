@@ -1,22 +1,14 @@
 {
-  "configId": "waf_90010",
-  "configName": "www.rbcdemo.ca security config",
-  "configVersion": 17,
+  "configId": "waf_90012",
+  "configName": "api.rbcdemo.ca security config",
+  "configVersion": 9,
   "productionStatus": "ACTIVATED",
   "securityPolicies": [
     {
-      "id": "pol_www_1",
-      "name": "Default policy",
-      "hostnames": [
-        "www.rbcdemo.ca"
-      ],
-      "defaultProfile": "web_default_v2"
-    },
-    {
-      "id": "pol_www_2",
+      "id": "pol_api_1",
       "name": "API policy",
       "hostnames": [
-        "www.rbcdemo.ca"
+        "api.rbcdemo.ca"
       ],
       "defaultProfile": "api_default_v1"
     }
@@ -24,10 +16,10 @@
   "matchTargets": {
     "items": [
       {
-        "targetId": "tgt_pol_www",
+        "targetId": "tgt_pol_api",
         "type": "website",
         "hostnames": [
-          "www.rbcdemo.ca"
+          "api.rbcdemo.ca"
         ],
         "bypassNetworkLists": [
           {
@@ -84,7 +76,7 @@
           {
             "type": "hostname",
             "operator": "DOES_NOT_MATCH",
-            "value": "www.rbcdemo.ca"
+            "value": "api.rbcdemo.ca"
           }
         ],
         "action": "deny"
@@ -113,6 +105,31 @@
         "period": 60,
         "action": "deny",
         "matchType": "ALL_REQUESTS"
+      },
+      {
+        "id": "rp_partner",
+        "name": "Open-banking partner rate",
+        "averageThreshold": 100,
+        "burstThreshold": 50,
+        "period": 60,
+        "action": "deny",
+        "matchType": "PATH",
+        "pathMatch": [
+          "/open-banking/*"
+        ]
+      },
+      {
+        "id": "rp_mobile",
+        "name": "Mobile app rate",
+        "averageThreshold": 600,
+        "burstThreshold": 100,
+        "period": 60,
+        "action": "alert",
+        "matchType": "REQUEST_HEADER",
+        "headerMatch": {
+          "name": "x-rbcdemo-app",
+          "present": true
+        }
       }
     ]
   },
@@ -163,13 +180,14 @@
       }
     ]
   },
-  "botManagement": {
+  "apiConstraints": {
     "enabled": true,
-    "product": "BOT_MANAGEMENT_PREMIER",
-    "botEndpointCoverage": [
-      "/signin",
-      "/auth/*",
-      "/promo/*"
+    "action": "BLOCK",
+    "schemaEndpoints": [
+      {
+        "path": "/v2/payees*",
+        "schemaId": "sch_payees_v3"
+      }
     ]
   }
 }

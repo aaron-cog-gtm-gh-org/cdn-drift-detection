@@ -19,11 +19,12 @@ fixtures, golden Terraform, and the semantic field mapping.
 
 - `fixtures/akamai/` — PAPI-shaped exports per domain: `rules.json` (rule-tree
   envelope, rule format `v2023-01-05`), `hostnames.json`, `appsec.json`
-  (www + online), plus `properties.json` listing all four.
+  (www + online + api), plus `properties.json` listing all four.
 - `fixtures/cloudflare/` — v4 API-shaped exports per zone: `zone.json`,
   `settings.json`, `rulesets.json`, `dns_records.json`.
 - `golden/<domain>/` — intended state: `main.tf` (Akamai `~> 6.2`,
-  Cloudflare `~> 5.0`) and `rules/rules.json` golden rule tree.
+  Cloudflare `~> 5.0`), `rules/rules.json` golden rule tree, and
+  `appsec/security-config.json` (www, online, api).
 - `mapping/akamai-cloudflare-mapping.yaml` — versioned semantic mapping
   (~50 fields, value tables, comparators, provider-default suppression).
 - `docs/drift-scenarios.md` — the 12 seeded drift/suppression scenarios.

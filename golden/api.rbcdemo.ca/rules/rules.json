@@ -12,8 +12,7 @@
               "enabled": true,
               "responseCode": 204,
               "body": "",
-              "evolv": "",
-              "forceEvolution": false
+              "contentType": "text/plain"
             }
           },
           {
@@ -50,20 +49,14 @@
         "comment": "Preflight answered at edge; origins list mirrors CF response transform."
       },
       {
-        "name": "JWT validation",
+        "name": "API authorization",
         "children": [],
         "behaviors": [
           {
-            "name": "jwtValidation",
+            "name": "centralAuthorization",
             "options": {
               "enabled": true,
-              "jwksUri": "https://idp.rbcdemo.ca/.well-known/jwks.json",
-              "audience": "rbcdemo-mobile",
-              "requiredClaims": [
-                "sub",
-                "exp",
-                "iss"
-              ]
+              "authServerHostname": "idp.rbcdemo.ca"
             }
           }
         ],
@@ -80,84 +73,29 @@
           }
         ],
         "criteriaMustSatisfy": "all",
-        "comment": "Edge JWT gate ahead of origin \u2014 requiredClaims kept in sync with IdP team."
+        "comment": "Delegated edge authorization via Central Authorization service (JWKS at IdP)."
       },
       {
-        "name": "Partner rate policies",
-        "children": [
-          {
-            "name": "Open-banking partners",
-            "children": [],
-            "behaviors": [
-              {
-                "name": "rateLimit",
-                "options": {
-                  "enabled": true,
-                  "requestsPerPeriod": 100,
-                  "period": "60s",
-                  "action": "DENY",
-                  "burstAllowance": 50
-                }
-              }
-            ],
-            "criteria": [
-              {
-                "name": "path",
-                "options": {
-                  "matchOperator": "MATCHES_ONE_OF",
-                  "values": [
-                    "/open-banking/*"
-                  ],
-                  "matchCaseSensitive": false
-                }
-              }
-            ],
-            "criteriaMustSatisfy": "all",
-            "comment": "Partner rate policy: 100 req/min per EDG-1988."
-          },
-          {
-            "name": "Mobile app",
-            "children": [],
-            "behaviors": [
-              {
-                "name": "rateLimit",
-                "options": {
-                  "enabled": true,
-                  "requestsPerPeriod": 600,
-                  "period": "60s",
-                  "action": "ALERT",
-                  "burstAllowance": 100
-                }
-              }
-            ],
-            "criteria": [
-              {
-                "name": "requestHeader",
-                "options": {
-                  "headerName": "x-rbcdemo-app",
-                  "matchOperator": "IS_DEFINED"
-                }
-              }
-            ],
-            "criteriaMustSatisfy": "all",
-            "comment": ""
-          }
-        ],
-        "behaviors": [],
-        "criteria": [],
-        "criteriaMustSatisfy": "all",
-        "comment": "Per-endpoint rate policies; canonical values live in golden."
-      },
-      {
-        "name": "Schema enforcement",
+        "name": "Partner request tagging",
         "children": [],
         "behaviors": [
           {
-            "name": "apiShield",
+            "name": "modifyIncomingRequestHeader",
             "options": {
-              "enabled": true,
-              "schemaId": "sch_payees_v3",
-              "action": "BLOCK"
+              "action": "ADD",
+              "customHeaderName": "X-RBCDemo-Partner",
+              "customHeaderValue": "ob",
+              "standardModifyHeaderName": "OTHER",
+              "standardAddHeaderName": "OTHER"
+            }
+          },
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "BYPASS",
+              "mustRevalidate": false,
+              "ttl": "0s",
+              "enhancedRfc": false
             }
           }
         ],
@@ -167,14 +105,14 @@
             "options": {
               "matchOperator": "MATCHES_ONE_OF",
               "values": [
-                "/v2/payees*"
+                "/open-banking/*"
               ],
               "matchCaseSensitive": false
             }
           }
         ],
         "criteriaMustSatisfy": "all",
-        "comment": "Mirrors API Shield schema enforcement; violations to SIEM."
+        "comment": "Partner rate policies enforced in App Sec (rp_partner), not the property."
       },
       {
         "name": "JSON compression",
@@ -240,6 +178,13 @@
               "ttl": "0s",
               "enhancedRfc": false
             }
+          },
+          {
+            "name": "allowPost",
+            "options": {
+              "allowWithoutContentLength": false,
+              "enabled": true
+            }
           }
         ],
         "criteria": [
@@ -262,13 +207,12 @@
         "children": [],
         "behaviors": [
           {
-            "name": "rateLimit",
+            "name": "caching",
             "options": {
-              "enabled": true,
-              "requestsPerPeriod": 120,
-              "period": "60s",
-              "action": "DENY",
-              "burstAllowance": 10
+              "behavior": "BYPASS",
+              "mustRevalidate": false,
+              "ttl": "0s",
+              "enhancedRfc": false
             }
           }
         ],
@@ -285,7 +229,65 @@
           }
         ],
         "criteriaMustSatisfy": "all",
-        "comment": ""
+        "comment": "Billing payloads are personalized; bypass cache. Rate limit via App Sec."
+      },
+      {
+        "name": "Health checks",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "constructResponse",
+            "options": {
+              "enabled": true,
+              "responseCode": 200,
+              "body": "ok",
+              "contentType": "text/plain"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/health",
+                "/readyz"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Synthetic health response at edge; keeps LB probes off origin."
+      },
+      {
+        "name": "Legacy v1 sunset",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "simulateErrorCode",
+            "options": {
+              "enabled": true,
+              "responseCode": 410,
+              "responseBody": "API v1 retired 2026-06-30; migrate to /v2"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/v1/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Sunset window \u2014 remove rule after EDG-2400 closes."
       }
     ],
     "behaviors": [

@@ -59,10 +59,11 @@
             "children": [],
             "behaviors": [
               {
-                "name": "imageAndVideoManager",
+                "name": "imageManager",
                 "options": {
                   "enabled": true,
-                  "policyTokenDefault": "rbcdemo-www-im"
+                  "policyTokenDefault": "rbcdemo-www-im",
+                  "applyBestFileType": true
                 }
               }
             ],
@@ -229,18 +230,10 @@
             "comment": "Cheap signature layer \u2014 real bot logic in Bot Manager."
           }
         ],
-        "behaviors": [
-          {
-            "name": "botManagement",
-            "options": {
-              "enabled": true,
-              "botCategory": "ALL"
-            }
-          }
-        ],
+        "behaviors": [],
         "criteria": [],
         "criteriaMustSatisfy": "all",
-        "comment": ""
+        "comment": "Bot enforcement lives in App Sec Bot Manager (see appsec.json botManagement);\n             this rule only carries the cheap signature layer."
       },
       {
         "name": "Sign-in redirect",
