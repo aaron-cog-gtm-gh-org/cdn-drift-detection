@@ -147,6 +147,39 @@ def test_demo_every_method_renders():
     assert "equivalent" in text and "31536000s" in text
 
 
+def test_demo_equivalences_compact_truncates_reason():
+    long_reason = "r" * 200
+    rep = {"equivalent_but_different": [
+        {"field": "tls.hsts_max_age", "provider": "akamai",
+         "why_equivalent": "short"},
+        {"field": "ratelimit.partner_api",
+         "provider": "cloudflare", "why_equivalent": long_reason},
+    ]}
+    r = _demo()  # width=100 -> avail = 100 - 42 - 7 = 51
+    r.equivalences("www.rbcdemo.ca", rep)
+    text = r.console.file.getvalue()
+    assert "tls.hsts_max_age" in text and "(akamai)" in text
+    assert "ratelimit.partner_api" in text and "(cloudflare)" in text
+    assert "r" * 200 not in text and "r" * 50 + "…" in text
+    assert "short" in text
+    # full mode never truncates
+    r2 = _demo()
+    r2.equivalences("www.rbcdemo.ca", rep, full=True)
+    full_text = r2.console.file.getvalue()
+    assert "r" * 50 in full_text and "…" not in full_text
+
+
+def test_demo_equivalences_narrow_console_degrades():
+    from rich.console import Console
+    r = DemoReporter(console=Console(file=StringIO(), force_terminal=True,
+                                     width=40))
+    rep = {"equivalent_but_different": [
+        {"field": "f.x", "provider": "akamai",
+         "why_equivalent": "r" * 100}]}
+    r.equivalences("www.rbcdemo.ca", rep)  # avail floor 20, no negative width
+    assert "f.x" in r.console.file.getvalue()
+
+
 def test_replay_renders_saved_reports(tmp_path):
     import json as _json
     from orchestrator.run_detection import replay

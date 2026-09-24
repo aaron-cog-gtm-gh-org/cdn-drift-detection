@@ -291,14 +291,17 @@ class DemoReporter:
             f"  [bold]{len(eq)} fields equivalent but expressed "
             f"differently — not drift[/]"
             + ("" if full else " [dim](--full-equivalences for reasons)[/]"))
+        FW = 42  # longest "field (provider)" is 41
+        avail = max(self.console.width - FW - 7, 20)
         t = Table(show_lines=False, pad_edge=True, show_header=False)
-        t.add_column("field", no_wrap=True, style="bold", min_width=34)
+        t.add_column("field", no_wrap=True, style="bold", width=FW)
         t.add_column("reason", style="dim", no_wrap=not full,
-                     overflow="ellipsis" if not full else "fold",
-                     ratio=1)
+                     overflow=None if not full else "fold")
         for e in eq:
-            t.add_row(f"{e['field']} [dim]({e['provider']})[/]",
-                      e.get("why_equivalent", ""))
+            reason = e.get("why_equivalent", "")
+            if not full and len(reason) > avail:
+                reason = reason[:avail - 1].rstrip() + "…"
+            t.add_row(f"{e['field']} [dim]({e['provider']})[/]", reason)
         self.console.print(t)
 
     def remediation(self, route, domain, session_id, url=None):
