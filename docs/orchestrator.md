@@ -16,6 +16,7 @@ Everything is run from the repo root with `~/cdn-drift-venv/bin/python`.
 | `orchestrator/collect.py` | per-domain provider bundles via `ApiSource`, `artifacts/<run_id>/` writer, `manifest.json` |
 | `orchestrator/run_detection.py` | the CLI orchestrating collect → upload → sessions → poll → validate → remediate |
 | `orchestrator/remediate.py` | groups findings by `remediation_route` and creates remediation sessions |
+| `orchestrator/console.py` | `PlainReporter` (byte-identical legacy output) and `DemoReporter` (rich); one pipeline, injected reporter |
 | `orchestrator/schema.py` | the structured-output contract (authored; do not edit) |
 | `orchestrator/prompts.py` | detection/remediation prompt templates (authored; do not edit) |
 | `drift/sources.py` | `DiskSource`/`ApiSource`/`DOMAINS`, shared by the validator and the orchestrator |
@@ -31,19 +32,52 @@ Everything is run from the repo root with `~/cdn-drift-venv/bin/python`.
 ## Usage
 
 ```sh
-# render everything without touching the API
-python -m orchestrator.run_detection --dry-run
+# the one command — checks sims (starts them if down), requires
+# DEVIN_ENTERPRISE_SERVICE_USER, passes extra args through
+./scripts/demo.sh
 
-# live run — one detection session per domain, then remediation sessions
-python -m orchestrator.run_detection
+# rehearsal: everything through bundle collection plus the rendered
+# prompts and schema summary — no API calls, no ACU spend
+./scripts/demo.sh --dry-run
 
-# options
+# offline re-show of a finished run's findings/equivalences/summary
+./scripts/demo.sh --replay artifacts/<run_id>
+
+# options (demo.sh passes them through; run_detection takes them directly)
 --domain online.rbcdemo.ca --domain www.rbcdemo.ca   # subset
 --max-acu 10            # per-session ACU ceiling (default 10)
 --devin-mode normal     # v3 devin_mode field
 --no-remediate          # detection only
 --poll-interval 20      # seconds between session polls
+--demo / --plain        # force rich or plain output; default is rich on a
+                        # tty, plain when piped (keeps CI/captured output stable)
+--full-equivalences     # expand each equivalent field's reasoning (compact
+                        # one-line-per-field table is the default)
+--show-schema           # dry run only: dump the full structured-output
+                        # schema instead of the compact contract summary
 ```
+
+## What the console shows
+
+`run_detection` narrates through an injected reporter — one pipeline, two
+renderers. `DemoReporter` (rich) is the default on a tty; `PlainReporter`
+emits the original byte-identical strings and is selected automatically when
+stdout isn't a tty. Nine numbered phases:
+
+1. **Golden state** — domain / role / golden_sha table + mapping version.
+2. **Pulling Akamai configs** — per domain, one row per document fetched
+   (rules, hostnames, App Sec) with the request path.
+3. **Pulling Cloudflare configs** — zone, settings, rulesets, DNS records.
+4. **Writing provider bundles** — file / sha256 / size table, `file://`
+   links on the filenames.
+5. **Uploading to Devin** — one line per attachment.
+6. **Creating detection sessions** — domain → session id → URL table.
+7. **Sessions working** — a live-updating table of status + ACUs.
+8. **Findings** — per-domain sub-heading (verdict colour-coded), severity-
+   sorted findings table, then the compact equivalences block
+   (`--full-equivalences` for the full reasoning).
+9. **Remediation routing** — what was created, what was deferred and why,
+   then the summary.
 
 ## What a run does
 
