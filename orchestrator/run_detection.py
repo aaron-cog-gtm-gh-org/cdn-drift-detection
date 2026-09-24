@@ -138,6 +138,9 @@ def main(argv=None):
     ap.add_argument("--plain", action="store_true", help="plain output")
     ap.add_argument("--show-schema", action="store_true",
                     help="print the full JSON Schema instead of the compact summary")
+    ap.add_argument("--full-equivalences", action="store_true",
+                    help="render full equivalence reasoning instead of the "
+                         "one-line-per-field compact form")
     ap.add_argument("--replay", metavar="RUN_DIR",
                     help="re-render phases 8-9 from an existing "
                          "artifacts/<run_id>/detection/ — no API calls")
@@ -153,7 +156,8 @@ def main(argv=None):
     total = 9
 
     if args.replay:
-        return replay(args.replay, out, total)
+        return replay(args.replay, out, total,
+                      full_equivalences=args.full_equivalences)
 
     domains = args.domain or DOMAINS
     rid = config.run_id()
@@ -270,7 +274,7 @@ def main(argv=None):
     for d in domains:
         if d in reports:
             out.findings(d, reports[d])
-            out.equivalences(d, reports[d])
+            out.equivalences(d, reports[d], full=args.full_equivalences)
     for msg in bad:
         out.error(f"SCHEMA: {msg}")
 
@@ -298,7 +302,7 @@ def main(argv=None):
     return 1 if bad else 0
 
 
-def replay(run_dir, out, total):
+def replay(run_dir, out, total, full_equivalences=False):
     """Re-render phases 8-9 from a saved detection dir — no API, no ACUs."""
     det_dir = Path(run_dir)
     if not det_dir.is_dir():
@@ -318,7 +322,7 @@ def replay(run_dir, out, total):
               subtitle=f"REPLAY of {det_dir} — saved reports, no live sessions")
     for d, rep in reports.items():
         out.findings(d, rep)
-        out.equivalences(d, rep)
+        out.equivalences(d, rep, full=full_equivalences)
     out.phase(9, total, "Remediation routing (replay — no sessions created)")
     for d, rep in reports.items():
         if rep["verdict"] == "inconclusive":

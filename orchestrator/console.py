@@ -78,7 +78,7 @@ class PlainReporter:
             print(f"  {f['severity']:9s} {f['provider']:10s} {f['field']:36s} "
                   f"{f['equivalence']:22s} -> {f['remediation_route']}")
 
-    def equivalences(self, domain, report):
+    def equivalences(self, domain, report, full=False):
         for e in report.get("equivalent_but_different", []):
             print(f"  ~equiv    {e['provider']:10s} {e['field']}")
 
@@ -147,7 +147,7 @@ class DemoReporter:
 
     def golden_state(self, domains, roles, shas, mapping_version):
         from rich.table import Table
-        t = Table(show_lines=False, pad_edge=False)
+        t = Table(show_lines=False, pad_edge=True)
         t.add_column("domain", style="bold")
         t.add_column("role")
         t.add_column("golden_sha", style="magenta")
@@ -158,7 +158,7 @@ class DemoReporter:
 
     def fetch_table(self, rows):
         from rich.table import Table
-        t = Table(show_lines=False, pad_edge=False)
+        t = Table(show_lines=False, pad_edge=True)
         t.add_column("domain", style="bold", no_wrap=True)
         t.add_column("document")
         t.add_column("request", style="dim", overflow="ellipsis",
@@ -169,7 +169,7 @@ class DemoReporter:
 
     def artifact_table(self, rows):
         from rich.table import Table
-        t = Table(show_lines=False, pad_edge=False)
+        t = Table(show_lines=False, pad_edge=True)
         t.add_column("file", no_wrap=True)
         t.add_column("sha256", style="magenta", no_wrap=True)
         t.add_column("size", justify="right", no_wrap=True)
@@ -218,7 +218,7 @@ class DemoReporter:
 
     def _status_table(self):
         from rich.table import Table
-        t = Table(show_lines=False, pad_edge=False, box=None)
+        t = Table(show_lines=False, pad_edge=True, box=None)
         t.add_column("domain", style="bold")
         t.add_column("status")
         t.add_column("ACUs", justify="right")
@@ -252,39 +252,52 @@ class DemoReporter:
 
     # -- reports ----------------------------------------------------------------
 
+    VERDICT_STYLE = {"drift_detected": "bold red", "in_sync": "bold green",
+                     "inconclusive": "bold yellow"}
+
     def findings(self, domain, report):
+        from rich.rule import Rule
         from rich.table import Table
         s = report["summary"]
+        verdict = report["verdict"]
+        self.console.print()
         self.console.print(
-            f"\n[bold]{domain}[/] — verdict: "
-            f"[bold]{report['verdict']}[/] "
-            f"[dim]({s['findings_total']} findings, "
-            f"{s['fields_compared']} fields compared)[/]")
+            Rule(f"[bold]{domain}[/] — verdict: "
+                 f"[{self.VERDICT_STYLE.get(verdict, 'white')}]{verdict}[/] "
+                 f"[dim]({s['findings_total']} findings, "
+                 f"{s['fields_compared']} fields compared)[/]",
+                 style="dim", align="left"))
         if not report["findings"]:
             return
-        t = Table(show_lines=False, pad_edge=False)
+        t = Table(show_lines=False, pad_edge=True)
         for col in ("severity", "provider", "field", "equivalence", "route"):
             t.add_column(col)
-        for f in report["findings"]:
+        order = {s_: i for i, s_ in enumerate(SEVERITY_STYLE)}
+        ranked = sorted(report["findings"],
+                        key=lambda f: order.get(f["severity"], 99))
+        for f in ranked:
             sev = f["severity"]
             t.add_row(f"[{SEVERITY_STYLE.get(sev, 'white')}]{sev}[/]",
                       f["provider"], f["field"], f["equivalence"],
                       f["remediation_route"])
         self.console.print(t)
 
-    def equivalences(self, domain, report):
+    def equivalences(self, domain, report, full=False):
         eq = report.get("equivalent_but_different", [])
         if not eq:
             return
         from rich.table import Table
-        self.console.print("  [bold]equivalent — same meaning, "
-                           "different representation (not drift):[/]")
-        t = Table(show_lines=False, pad_edge=False, show_header=False)
-        t.add_column("field", no_wrap=True, style="bold")
-        t.add_column("provider", no_wrap=True, style="dim")
-        t.add_column("reason", style="dim")
+        self.console.print(
+            f"  [bold]{len(eq)} fields equivalent but expressed "
+            f"differently — not drift[/]"
+            + ("" if full else " [dim](--full-equivalences for reasons)[/]"))
+        t = Table(show_lines=False, pad_edge=True, show_header=False)
+        t.add_column("field", no_wrap=True, style="bold", min_width=34)
+        t.add_column("reason", style="dim", no_wrap=not full,
+                     overflow="ellipsis" if not full else "fold",
+                     ratio=1)
         for e in eq:
-            t.add_row(e["field"], f"({e['provider']})",
+            t.add_row(f"{e['field']} [dim]({e['provider']})[/]",
                       e.get("why_equivalent", ""))
         self.console.print(t)
 
@@ -301,7 +314,7 @@ class DemoReporter:
         from rich.table import Table
         self.console.print()
         self.console.rule("[bold cyan]summary", style="cyan")
-        t = Table(show_lines=False, pad_edge=False)
+        t = Table(show_lines=False, pad_edge=True)
         for col in ("domain", "verdict", "findings"):
             t.add_column(col)
         sev_totals = {}
@@ -334,7 +347,7 @@ class DemoReporter:
         from rich.table import Table
         props = schema["properties"]
         fprops = props["findings"]["items"]["properties"]
-        t = Table(show_lines=False, pad_edge=False,
+        t = Table(show_lines=False, pad_edge=True,
                   title="structured output contract", title_justify="left")
         t.add_column("part", style="bold", no_wrap=True)
         t.add_column("value")
