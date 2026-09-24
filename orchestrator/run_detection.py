@@ -291,10 +291,17 @@ def main(argv=None):
                 (det_dir / f"{d}.json").write_text(
                     json.dumps(report, indent=2, sort_keys=True) + "\n")
         # repaint once more with each session's terminal state so the live
-        # table's last frame doesn't leave stale 'running' rows on screen
+        # table's last frame doesn't leave stale 'running' rows on screen.
+        # A body can terminate on structured_output/status_detail while its
+        # status still reads 'running' — poll_session's terminal conditions
+        # are the source of truth, not the status field alone.
         for d, body in polled.items():
-            out.session_status(d, body.get("status"),
-                               body.get("acus_consumed"))
+            st = body.get("status")
+            if st not in ("exit", "error") and (
+                    body.get("structured_output") is not None
+                    or body.get("status_detail") == "finished"):
+                st = "exit"
+            out.session_status(d, st, body.get("acus_consumed"))
     out.phase(8, total, "Findings")
     coverage_gaps = {}
     for d in domains:

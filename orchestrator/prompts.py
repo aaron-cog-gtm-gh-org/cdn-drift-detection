@@ -51,6 +51,11 @@ entrypoint -- none of these are drift on their own.
 - Use the comparator the mapping specifies for the field. If the mapping says \
 a set comparison is unordered, order is not drift. If it says a TTL tolerance \
 applies, a difference inside that tolerance is not drift.
+- The mapping carries `flag_definitions` and `comparator_definitions` \
+sections. Apply them as written -- do not infer a flag's meaning from its \
+name. In particular, `allow_absent` does not permit absence: an unresolved \
+provider path under it is a migration gap to report as a finding routed to \
+human review.
 - Where a field is absent at a provider, decide whether it is genuinely absent \
 or expressed somewhere else in that provider's model -- a control moved from \
 the Akamai property rule tree into an App Sec policy has not disappeared. \

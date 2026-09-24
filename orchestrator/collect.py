@@ -98,6 +98,17 @@ def golden_bundle(record, mapping_doc):
             "version": mapping_doc.get("version"),
             "defaults": mapping_doc.get("defaults", {}),
             "value_tables": mapping_doc.get("value_tables", {}),
+            # the vocabulary this domain's fields actually use — semantics
+            # as data, since YAML comments do not survive parsing
+            "flag_definitions": {
+                k: v for k, v in
+                mapping_doc.get("flag_definitions", {}).items()
+                if any(f.get("akamai", {}).get(k) or f.get("cloudflare",
+                       {}).get(k) for f in scoped)},
+            "comparator_definitions": {
+                k: v for k, v in
+                mapping_doc.get("comparator_definitions", {}).items()
+                if k in {f.get("comparator") for f in scoped}},
             "fields": scoped,
         },
     }
