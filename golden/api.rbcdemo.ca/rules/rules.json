@@ -112,7 +112,7 @@
           }
         ],
         "criteriaMustSatisfy": "all",
-        "comment": "Partner rate policies enforced in App Sec (rp_partner), not the property."
+        "comment": "Partner rate policies enforced in App Sec (rate policy 9101), not the property."
       },
       {
         "name": "JSON compression",

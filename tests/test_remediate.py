@@ -87,7 +87,8 @@ def test_findings_block_readable_not_json():
     assert not block.lstrip().startswith("{")  # not raw JSON
 
 
-def test_execute_creates_child_sessions():
+def test_execute_links_sessions_by_parent_tag():
+    import json as _json
     requests = []
 
     def h(req):
@@ -102,6 +103,8 @@ def test_execute_creates_child_sessions():
         [plan], client, repo="org/repo", max_acu_limit=5, devin_mode="normal",
         parent_ids={"online.rbcdemo.ca": "parent-1"})
     assert len(created) == 2
-    for req in requests:
-        assert req.url.params.get("devin_id") == "parent-1"
+    for req in requests:  # linked siblings via tag — v3 has no child linkage
+        body = _json.loads(req.content)
+        assert "parent:parent-1" in body["tags"]
+        assert "devin_id" not in req.url.params
     assert {c["route"] for c in created} == {"iac_pr", "human_review"}

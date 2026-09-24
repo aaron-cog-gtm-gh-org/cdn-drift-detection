@@ -55,13 +55,12 @@ class DevinClient:
     def create_session(self, prompt, *, title=None, tags=None, repos=None,
                        attachment_urls=None, structured_output_schema=None,
                        structured_output_required=True, max_acu_limit=None,
-                       devin_mode=None, parent_session_id=None):
+                       devin_mode=None):
         """Create a session; returns the v3 session object.
 
-        `parent_session_id` is passed as the `devin_id` query parameter — the
-        v3 mechanism for attaching a session to a parent. Whether the parent's
-        `child_session_ids` actually populates is verified in the E2E run, not
-        assumed here.
+        v3 exposes no parent/child linkage — `devin_id` was tried live and the
+        parent's `child_session_ids` stayed empty. Sessions are linked by
+        convention instead: the caller tags them (e.g. `parent:<id>`).
         """
         payload = {"prompt": prompt,
                    "structured_output_required": structured_output_required}
@@ -79,9 +78,7 @@ class DevinClient:
             payload["max_acu_limit"] = max_acu_limit
         if devin_mode:
             payload["devin_mode"] = devin_mode
-        params = {"devin_id": parent_session_id} if parent_session_id else None
-        return self._request("POST", self._org("/sessions"), params=params,
-                             json=payload)
+        return self._request("POST", self._org("/sessions"), json=payload)
 
     def get_session(self, session_id):
         return self._request("GET", self._org(f"/sessions/{session_id}"))

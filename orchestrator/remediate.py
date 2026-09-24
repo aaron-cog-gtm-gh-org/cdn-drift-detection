@@ -2,10 +2,11 @@
 
 Grouping is by `remediation_route` from the structured report:
 
-- `iac_pr`       -> one child session per domain with REMEDIATION_PROMPT_IAC
+- `iac_pr`       -> one remediation session per domain with REMEDIATION_PROMPT_IAC
                     (the findings an IaC PR can close)
-- `human_review` -> one child session per domain with REMEDIATION_PROMPT_HUMAN
-                    (prepares the escalation briefing; opens no PR)
+- `human_review` -> one remediation session per domain with
+                    REMEDIATION_PROMPT_HUMAN (prepares the escalation
+                    briefing; opens no PR)
 - `provider_api` -> NO session. Provider writes are out of scope until
                     phase 04; these findings are recorded as `deferred`.
 
@@ -101,12 +102,13 @@ def plan_remediation(report, run_id, golden_branch):
 
 def execute_remediation(plans, client, *, repo, max_acu_limit, devin_mode,
                         parent_ids=None, on_session=None):
-    """Create the remediation child sessions described by `plan_remediation`.
+    """Create the remediation sessions described by `plan_remediation`.
 
-    `parent_ids` maps domain -> detection session id, passed as `devin_id` so
-    the children link to their detection session (unverified in v3 — the E2E
-    run confirms whether child_session_ids populates).
-    Returns the sessions created, annotated with domain/route.
+    `parent_ids` maps domain -> detection session id. The v3 API has no
+    parent/child linkage (`devin_id` was tried live; `child_session_ids`
+    stayed empty), so each remediation session carries a
+    `parent:<detection_session_id>` tag — linked siblings, discoverable by
+    tag. Returns the sessions created, annotated with domain/route.
     """
     parent_ids = parent_ids or {}
     created = []
@@ -114,12 +116,15 @@ def execute_remediation(plans, client, *, repo, max_acu_limit, devin_mode,
         if plan["skipped"]:
             continue
         for sess in plan["sessions"]:
+            tags = list(sess["tags"])
+            parent = parent_ids.get(plan["domain"])
+            if parent:
+                tags.append(f"parent:{parent}")
             body = client.create_session(
                 sess["prompt"],
                 title=f"CDN drift remediation ({sess['route']}): {plan['domain']}",
-                tags=sess["tags"], repos=[repo],
-                max_acu_limit=max_acu_limit, devin_mode=devin_mode,
-                parent_session_id=parent_ids.get(plan["domain"]))
+                tags=tags, repos=[repo],
+                max_acu_limit=max_acu_limit, devin_mode=devin_mode)
             created.append({"domain": plan["domain"], "route": sess["route"],
                             "session": body})
             if on_session:

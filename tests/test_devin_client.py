@@ -52,17 +52,10 @@ def test_create_session_request_shape():
     assert out["session_id"] == "devin-1"
 
 
-def test_create_session_parent_via_devin_id_param():
-    seen, h = capture(lambda r: httpx.Response(200, json={"session_id": "child"}))
-    c = make_client(h)
-    c.create_session("P", parent_session_id="devin-parent-9")
-    assert seen[0].url.params["devin_id"] == "devin-parent-9"
-
-
-def test_create_session_no_parent_has_no_devin_id():
+def test_create_session_sends_no_query_params():
     seen, h = capture(lambda r: httpx.Response(200, json={"session_id": "s"}))
     make_client(h).create_session("P")
-    assert "devin_id" not in seen[0].url.params
+    assert not dict(seen[0].url.params)  # v3 has no parent linkage to pass
 
 
 def test_upload_attachment_multipart(tmp_path):

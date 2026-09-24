@@ -3,7 +3,7 @@
 `orchestrator/` wires the phase-01 fixtures and phase-02 simulators to real
 Devin sessions. The flow, in one line: **collect provider state over the
 simulator APIs → attach it → one detection session per domain → validate the
-structured output → route findings to remediation child sessions.**
+structured output → route findings to remediation sessions.**
 
 Everything is run from the repo root with `~/cdn-drift-venv/bin/python`.
 
@@ -15,7 +15,7 @@ Everything is run from the repo root with `~/cdn-drift-venv/bin/python`.
 | `orchestrator/devin_client.py` | thin v3 client: `upload_attachment`, `create_session`, `get_session`, `poll_session` |
 | `orchestrator/collect.py` | per-domain provider bundles via `ApiSource`, `artifacts/<run_id>/` writer, `manifest.json` |
 | `orchestrator/run_detection.py` | the CLI orchestrating collect → upload → sessions → poll → validate → remediate |
-| `orchestrator/remediate.py` | groups findings by `remediation_route` and creates remediation child sessions |
+| `orchestrator/remediate.py` | groups findings by `remediation_route` and creates remediation sessions |
 | `orchestrator/schema.py` | the structured-output contract (authored; do not edit) |
 | `orchestrator/prompts.py` | detection/remediation prompt templates (authored; do not edit) |
 | `drift/sources.py` | `DiskSource`/`ApiSource`/`DOMAINS`, shared by the validator and the orchestrator |
@@ -34,7 +34,7 @@ Everything is run from the repo root with `~/cdn-drift-venv/bin/python`.
 # render everything without touching the API
 python -m orchestrator.run_detection --dry-run
 
-# live run — one detection session per domain, then remediation children
+# live run — one detection session per domain, then remediation sessions
 python -m orchestrator.run_detection
 
 # options
@@ -65,10 +65,10 @@ python -m orchestrator.run_detection
    identity fields); violations print as `SCHEMA:` lines and set a nonzero
    exit code. Reports land in `artifacts/<run_id>/detection/<domain>.json`.
 5. **Remediate** — findings group by `remediation_route`:
-   - `iac_pr` → one child session per domain (`REMEDIATION_PROMPT_IAC`); the
-     findings' `provider_path`/`golden_path` locators are rendered as readable
-     blocks, not raw JSON.
-   - `human_review` → one child session per domain
+   - `iac_pr` → one remediation session per domain (`REMEDIATION_PROMPT_IAC`);
+     the findings' `provider_path`/`golden_path` locators are rendered as
+     readable blocks, not raw JSON.
+   - `human_review` → one remediation session per domain
      (`REMEDIATION_PROMPT_HUMAN`, escalation briefing; opens no PR).
    - `provider_api` → **no session**; recorded as deferred — provider writes
      are out of scope until phase 04.
@@ -85,11 +85,12 @@ python -m orchestrator.run_detection
   or a non-null `structured_output`.
 - There is no `idempotent` flag in v3; reruns create new sessions (tagged by
   `run:<run_id>`).
-- **Parent/child linking (unverified):** remediation sessions pass the
-  detection session id as the `devin_id` query parameter on create. Whether
-  the parent's `child_session_ids` actually populates is to be confirmed in
-  the first E2E run; if it does not, fall back to a `parent:<session_id>` tag
-  and stop calling them children.
+- **No parent/child linkage exists in v3 (verified live):** the `devin_id`
+  query parameter was sent on remediation session create in the E2E run and
+  the detection parents' `child_session_ids` stayed `[]`. The parameter does
+  nothing useful and was removed. Remediation sessions are **linked siblings
+  discoverable by tag** — each carries `parent:<detection_session_id>` plus
+  the shared `run:<run_id>` and `domain:<d>` tags — not children.
 
 ## Deliberate constraints
 
