@@ -166,6 +166,8 @@ class DemoReporter:
         self._status = {}          # domain -> {"status": str, "acus": ...}
         self._status_order = []    # stable row order
         self._live = None
+        self._fetch_rows = []      # (domain, kind, url) rows painted so far
+        self._fetch_live = None
 
     def pause(self, weight=1.0):
         if self.pace > 0:
@@ -202,7 +204,7 @@ class DemoReporter:
 
         class _Stream:
             def __enter__(self):
-                reporter._fetch_rows = []
+                reporter._fetch_rows = []  # phases 2/3 open separate streams
                 reporter._fetch_live = Live(
                     _table(), console=reporter.console, refresh_per_second=4)
                 reporter._fetch_live.__enter__()

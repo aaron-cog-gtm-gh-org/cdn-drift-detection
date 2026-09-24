@@ -6,6 +6,7 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from orchestrator.console import DemoReporter, PlainReporter, make_reporter
@@ -97,7 +98,6 @@ def test_plain_phase_and_artifact_silent():
 
 
 def _demo():
-    from rich.console import Console
     return DemoReporter(console=Console(file=StringIO(), force_terminal=True,
                                         width=100))
 
@@ -171,7 +171,6 @@ def test_demo_equivalences_compact_truncates_reason():
 
 
 def test_demo_equivalences_narrow_console_degrades():
-    from rich.console import Console
     r = DemoReporter(console=Console(file=StringIO(), force_terminal=True,
                                      width=40))
     rep = {"equivalent_but_different": [
@@ -197,7 +196,7 @@ def test_demo_pace_zero_never_sleeps(monkeypatch):
     import orchestrator.console as C
     calls = []
     monkeypatch.setattr(C.time, "sleep", lambda s: calls.append(s))
-    r = DemoReporter(console=__import__("rich.console", fromlist=["Console"]).Console(
+    r = DemoReporter(console=Console(
         file=StringIO(), force_terminal=True, width=200), pace=0)
     r.phase(1, 9, "t")
     with r.fetch_stream() as fs:
@@ -210,7 +209,7 @@ def test_demo_pace_sleeps_per_add_and_phase(monkeypatch):
     import orchestrator.console as C
     calls = []
     monkeypatch.setattr(C.time, "sleep", lambda s: calls.append(s))
-    r = DemoReporter(console=__import__("rich.console", fromlist=["Console"]).Console(
+    r = DemoReporter(console=Console(
         file=StringIO(), force_terminal=True, width=200), pace=0.01)
     r.phase(1, 9, "t")          # weight 1.5
     with r.fetch_stream() as fs:
@@ -220,7 +219,6 @@ def test_demo_pace_sleeps_per_add_and_phase(monkeypatch):
 
 
 def test_demo_fetch_stream_rows_in_order():
-    from rich.console import Console
     r = DemoReporter(console=Console(file=StringIO(), force_terminal=True,
                                      width=200))
     with r.fetch_stream() as fs:
