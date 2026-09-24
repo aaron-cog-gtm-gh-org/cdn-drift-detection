@@ -228,7 +228,7 @@ class ApiSource:
         for d in DOMAINS:
             prop = next(p for p in props if p["propertyName"] == d)
             z = self.cf.get("/client/v4/zones", params={"name": d}).json()
-            cfg = next((c for c in configs if d in c.get("hostnames", [])), None)
+            cfg = next((c for c in configs if d in c.get("productionHostnames", [])), None)
             meta[d] = {
                 "property_id": prop["propertyId"],
                 "version": prop["latestVersion"],

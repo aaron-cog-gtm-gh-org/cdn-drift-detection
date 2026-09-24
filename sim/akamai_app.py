@@ -157,13 +157,13 @@ def list_appsec_configs(request: Request):
             "latestVersion": doc["configVersion"],
             "stagingVersion": doc["configVersion"],
             "productionVersion": doc["configVersion"],
-            "hostnames": hostnames,
+            "productionHostnames": hostnames,
         })
     return maybe_strip({"configurations": configs}, request)
 
 
 @app.get("/appsec/v1/export/configs/{config_id}/versions/{version}")
-def get_appsec_export(config_id: str, version: int, request: Request):
+def get_appsec_export(config_id: int, version: int, request: Request):
     doc = INDEX.appsec_by_config.get((config_id, version))
     if doc is None:
         known = [c for c, _ in INDEX.appsec_by_config]

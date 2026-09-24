@@ -76,7 +76,7 @@ def test_discovery_resolves_identifiers_over_api(sims):
     assert meta["www.rbcdemo.ca"]["version"] == 47
     assert meta["online.rbcdemo.ca"]["zone_id"] == \
         "2b3c4d5e6f708192a3b4c5d6e7f8091a"
-    assert meta["api.rbcdemo.ca"]["config_id"] == "waf_90012"
+    assert meta["api.rbcdemo.ca"]["config_id"] == 90012
     assert meta["api.rbcdemo.ca"]["config_version"] == 9
     # second access is cached — no repeated discovery
     assert src.meta is meta

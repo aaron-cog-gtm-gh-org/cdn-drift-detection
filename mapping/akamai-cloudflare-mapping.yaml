@@ -513,7 +513,7 @@ fields:
     domains: [www.rbcdemo.ca, online.rbcdemo.ca]
     akamai:
       fixture: appsec
-      path: "$.ratePolicies.items[?(@.id=='rp_9001')].averageThreshold"
+      path: "$.ratePolicies.items[?(@.id==9001)].averageThreshold"
     cloudflare:
       unsupported: true
       note: "Global rate policy is expressed per-rule in http_ratelimit, not as one threshold"
@@ -530,13 +530,13 @@ fields:
     domains: [online.rbcdemo.ca]
     akamai:
       fixture: appsec
-      path: "$.ratePolicies.items[?(@.id=='rp_9002')].averageThreshold"
+      path: "$.ratePolicies.items[?(@.id==9002)].averageThreshold"
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_ratelimit')].rules[?(@.description=='Login rate limit')].ratelimit.requests_per_period"
     golden:
       fixture: appsec
-      path: "$.ratePolicies.items[?(@.id=='rp_9002')].averageThreshold"
+      path: "$.ratePolicies.items[?(@.id==9002)].averageThreshold"
 
   - id: ratelimit.partner_api
     description: Open-banking partner rate limit (requests/minute)
@@ -547,13 +547,13 @@ fields:
     domains: [api.rbcdemo.ca]
     akamai:
       fixture: appsec
-      path: "$.ratePolicies.items[?(@.id=='rp_partner')].averageThreshold"
+      path: "$.ratePolicies.items[?(@.id==9101)].averageThreshold"
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_ratelimit')].rules[?(@.description=='Open-banking partner rate')].ratelimit.requests_per_period"
     golden:
       fixture: appsec
-      path: "$.ratePolicies.items[?(@.id=='rp_partner')].averageThreshold"
+      path: "$.ratePolicies.items[?(@.id==9101)].averageThreshold"
 
   # ---------- Bot management ----------
   - id: bot.edge_layer
