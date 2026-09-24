@@ -33,6 +33,10 @@ invented for this demo. IPs are from TEST-NET-2/TEST-NET-3 documentation ranges.
   the mapping `defaults:` block supplies the provider default `on`.
 - `assets` Akamai `minTlsVersion` is `DYNAMIC`, which resolves to TLS 1.2
   through the value table (suppression case S-01).
+- Each Cloudflare `zone.json` models a **subdomain zone** (`name` = the domain
+  itself, e.g. `www.rbcdemo.ca`) — Cloudflare Enterprise supports subdomain
+  zones, and distinct names keep `?name=` lookups unambiguous for the
+  phase-02 simulator.
 
 ## Schema verification status
 

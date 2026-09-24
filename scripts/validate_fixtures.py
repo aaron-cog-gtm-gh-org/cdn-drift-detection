@@ -13,6 +13,7 @@ Checks:
 Usage: scripts/validate_fixtures.py  (run from repo root; requires pyyaml and
 jsonpath-ng, e.g. in the phase-01 venv)
 """
+import argparse
 import json
 import re
 import sys
@@ -190,6 +191,101 @@ def compare_values(field, provider, values, golden, golden_key, mapping):
     raise ValueError(f"unknown comparator {comp}")
 
 
+# ---------------- sources (disk | api) ----------------
+
+
+def domain_meta():
+    """Addressing index the API source needs (propertyId/version/configId/zoneId).
+    Metadata only — fixture content itself comes from the source."""
+    props = load_json(REPO / "fixtures/akamai/properties.json")
+    meta = {}
+    for item in props["properties"]["items"]:
+        d = item["propertyName"]
+        meta[d] = {"property_id": item["propertyId"],
+                   "version": item["latestVersion"]}
+        ap = REPO / "fixtures/akamai" / d / "appsec.json"
+        if ap.exists():
+            doc = load_json(ap)
+            meta[d]["config_id"] = doc["configId"]
+            meta[d]["config_version"] = doc["configVersion"]
+        meta[d]["zone_id"] = load_json(
+            REPO / "fixtures/cloudflare" / d / "zone.json")["result"]["id"]
+    return meta
+
+
+class DiskSource:
+    def get(self, provider, fixture_name, domain):
+        return load_json(fixture_path(provider, fixture_name, domain))
+
+
+class ApiSource:
+    """Fetch the same fixture documents over the simulators' HTTP APIs."""
+
+    AKAMAI_AUTH = ("EG1-HMAC-SHA256 client_token=sim;access_token=sim;"
+                   "timestamp=2026-01-01T00:00:00+00:00;nonce=1;signature=sim")
+
+    def __init__(self, akamai_base, cloudflare_base):
+        import httpx
+        self.meta = domain_meta()
+        self.ak = httpx.Client(base_url=akamai_base, timeout=10,
+                               headers={"Authorization": self.AKAMAI_AUTH})
+        import os
+        token = os.environ.get("CLOUDFLARE_SIM_TOKEN", "demo-token")
+        self.cf = httpx.Client(base_url=cloudflare_base, timeout=10,
+                               headers={"Authorization": f"Bearer {token}"})
+
+    def get(self, provider, fixture_name, domain):
+        m = self.meta[domain]
+        if provider == "akamai":
+            if fixture_name == "rules":
+                r = self.ak.get(f"/papi/v1/properties/{m['property_id']}"
+                                f"/versions/{m['version']}/rules")
+            elif fixture_name == "hostnames":
+                r = self.ak.get(f"/papi/v1/properties/{m['property_id']}"
+                                f"/versions/{m['version']}/hostnames")
+            elif fixture_name == "appsec":
+                r = self.ak.get(f"/appsec/v1/export/configs/{m['config_id']}"
+                                f"/versions/{m['config_version']}")
+            else:
+                raise KeyError(fixture_name)
+            r.raise_for_status()
+            return r.json()
+        zid = m["zone_id"]
+        if fixture_name == "zone":
+            r = self.cf.get(f"/client/v4/zones/{zid}")
+            r.raise_for_status()
+            return {"success": True, "errors": [], "messages": [], "result": r.json()["result"]}
+        if fixture_name == "settings":
+            r = self.cf.get(f"/client/v4/zones/{zid}/settings")
+            r.raise_for_status()
+            return r.json()
+        if fixture_name == "rulesets":
+            r = self.cf.get(f"/client/v4/zones/{zid}/rulesets")
+            r.raise_for_status()
+            listing = r.json()["result"]
+            full = []
+            for rs in listing:
+                d = self.cf.get(f"/client/v4/zones/{zid}/rulesets/{rs['id']}")
+                d.raise_for_status()
+                full.append(d.json()["result"])
+            return {"success": True, "errors": [], "messages": [], "result": full}
+        if fixture_name == "dns_records":
+            page, items, info = 1, [], None
+            while True:
+                r = self.cf.get(f"/client/v4/zones/{zid}/dns_records",
+                                params={"page": page, "per_page": 100})
+                r.raise_for_status()
+                body = r.json()
+                items.extend(body["result"])
+                info = body["result_info"]
+                if page >= info["total_pages"]:
+                    break
+                page += 1
+            return {"success": True, "errors": [], "messages": [],
+                    "result": items, "result_info": info}
+        raise KeyError(fixture_name)
+
+
 # ---------------- expected findings ----------------
 
 
@@ -205,27 +301,58 @@ def load_expected():
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--source", choices=["disk", "api"], default="disk")
+    ap.add_argument("--akamai-base", default="http://127.0.0.1:8081")
+    ap.add_argument("--cloudflare-base", default="http://127.0.0.1:8082")
+    ap.add_argument("--golden", choices=["files", "store"], default="files")
+    ap.add_argument("--db", default=None)
+    args = ap.parse_args()
+
     mapping = yaml.safe_load((REPO / "mapping" / "akamai-cloudflare-mapping.yaml").read_text())
     fields = mapping["fields"]
 
-    # 1. parse every fixture
-    fixture_cache = {}
+    # 1. fixture source
     errors = []
-    for d in DOMAINS:
-        for p in REPO.glob(f"fixtures/*/{d}/*.json"):
-            try:
-                fixture_cache[p] = load_json(p)
-            except Exception as e:
-                errors.append(f"unparseable JSON {p}: {e}")
-    load_json(REPO / "fixtures" / "akamai" / "properties.json")
+    if args.source == "api":
+        source = ApiSource(args.akamai_base, args.cloudflare_base)
+    else:
+        source = DiskSource()
+        for d in DOMAINS:
+            for p in REPO.glob(f"fixtures/*/{d}/*.json"):
+                try:
+                    load_json(p)
+                except Exception as e:
+                    errors.append(f"unparseable JSON {p}: {e}")
+        load_json(REPO / "fixtures/akamai/properties.json")
+    fixture_cache = {}
+
+    def fixture_doc(provider, fixture_name, domain):
+        key = (provider, fixture_name, domain)
+        if key not in fixture_cache:
+            fixture_cache[key] = source.get(provider, fixture_name, domain)
+        return fixture_cache[key]
+
+    # 2. golden source
     golden_cache = {}
+    store_conn = None
+    if args.golden == "store":
+        sys.path.insert(0, str(REPO))
+        from store.golden_store import DEFAULT_DB, connect
+        store_conn = connect(args.db or DEFAULT_DB)
 
     def golden_doc(domain, fixture_name):
         rel = {"rules": "rules/rules.json",
                "appsec": "appsec/security-config.json"}[fixture_name]
         key = (domain, fixture_name)
         if key not in golden_cache:
-            golden_cache[key] = load_json(REPO / "golden" / domain / rel)
+            if store_conn is not None:
+                from store.golden_store import get_golden
+                rec = get_golden(store_conn, domain)
+                blob = rec.rules_json if fixture_name == "rules" else rec.appsec_json
+                golden_cache[key] = json.loads(blob)
+            else:
+                golden_cache[key] = load_json(REPO / "golden" / domain / rel)
         return golden_cache[key]
 
     findings = []
@@ -256,11 +383,14 @@ def main():
                 if not side or side.get("unsupported"):
                     continue
                 fixture_name = side.get("fixture", "rules" if provider == "akamai" else "settings")
-                fp = fixture_path(provider, fixture_name, d)
-                if not fp.exists():
-                    errors.append(f"{fid}: fixture {fp} missing")
+                if args.source == "disk" and not fixture_path(provider, fixture_name, d).exists():
+                    errors.append(f"{fid}: fixture {fixture_path(provider, fixture_name, d)} missing")
                     continue
-                doc = fixture_cache.setdefault(fp, load_json(fp))
+                try:
+                    doc = fixture_doc(provider, fixture_name, d)
+                except Exception as e:
+                    errors.append(f"{fid}: cannot fetch {provider}/{fixture_name}/{d}: {e}")
+                    continue
                 vals = resolve(side["path"], doc, d)
                 defaulted = False
                 if not vals:
