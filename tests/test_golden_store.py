@@ -13,7 +13,7 @@ from store.golden_store import (GoldenRecord, connect, get_golden, get_mapping,
 def make_record(**kw):
     base = dict(domain="x.rbcdemo.ca", akamai_property_id="prp_1",
                 cloudflare_zone_id="z" * 32, main_tf="tf", rules_json="{}",
-                appsec_json=None, golden_sha="sha", mapping_version="2026.09.1",
+                appsec_json=None, golden_sha="sha", mapping_version="2026.09.2",
                 git_commit="abc", source_path="golden/x", updated_at="now")
     base.update(kw)
     return GoldenRecord(**base)
@@ -71,4 +71,4 @@ def test_loader_idempotent(tmp_path):
     assert rec.appsec_json is not None
     rec = get_golden(conn, "assets.rbcdemo.ca")
     assert rec.appsec_json is None
-    assert get_mapping(conn)["version"] == "2026.09.1"
+    assert get_mapping(conn)["version"] == "2026.09.2"

@@ -24,7 +24,7 @@ def finding(field, route, provider="akamai", severity="high", note=None):
 
 def report(domain="online.rbcdemo.ca", verdict="drift_detected", findings=()):
     return {"domain": domain, "golden_sha": "abc123",
-            "mapping_version": "2026.09.1", "verdict": verdict,
+            "mapping_version": "2026.09.2", "verdict": verdict,
             "summary": {"fields_compared": 10, "findings_total": len(findings),
                         "by_severity": {}, "by_provider": {}},
             "findings": list(findings)}

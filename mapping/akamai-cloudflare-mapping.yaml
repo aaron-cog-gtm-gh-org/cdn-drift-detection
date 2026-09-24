@@ -13,7 +13,7 @@
 # finding (route: human), not drift and not a validation error.
 # `unsupported: true` means the provider cannot express the field — the field
 # can only ever produce a migration gap, never drift.
-version: "2026.09.1"
+version: "2026.09.2"
 rule_format: "v2023-01-05"
 
 # Provider defaults applied when the other side omits the field entirely.
