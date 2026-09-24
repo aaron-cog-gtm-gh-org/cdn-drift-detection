@@ -1,0 +1,47 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+    "id": "4d5e6f708192a3b4c5d6e7f8091a2b3c",
+    "name": "rbcdemo.ca",
+    "status": "active",
+    "paused": false,
+    "type": "full",
+    "name_servers": [
+      "anna.ns.cloudflare.com",
+      "brad.ns.cloudflare.com"
+    ],
+    "original_ns": [
+      "a1-14.akam.net",
+      "a5-67.akam.net",
+      "a11-66.akam.net"
+    ],
+    "original_dnshost": "rbcdemo.ca",
+    "original_registrar": "webnames.ca",
+    "activated_on": "2026-03-14T18:22:11.000000Z",
+    "created_on": "2026-02-27T14:03:09.000000Z",
+    "modified_on": "2026-09-10T09:41:00.000000Z",
+    "account": {
+      "id": "cf_acct_rbcdemo01",
+      "name": "RBC Demo Enterprise"
+    },
+    "plan": {
+      "id": "plan_ent_01",
+      "name": "Enterprise Plan",
+      "is_subscribed": true
+    },
+    "meta": {
+      "cdn_only": false,
+      "phishing_detected": false
+    },
+    "vanity_name_servers": [],
+    "permissions": [
+      "#zone:read",
+      "#zone_settings:edit",
+      "#dns_records:edit",
+      "#waf:edit",
+      "#zone:edit"
+    ]
+  }
+}

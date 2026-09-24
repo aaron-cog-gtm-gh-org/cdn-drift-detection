@@ -1,0 +1,768 @@
+{
+  "accountId": "act_1-2ABCDE",
+  "contractId": "ctr_C-0N7RAC7",
+  "groupId": "grp_98765",
+  "propertyId": "prp_512345",
+  "propertyName": "www.rbcdemo.ca",
+  "propertyVersion": 47,
+  "etag": "a1b2c3d4e5f60718293a4b5c6d7e8f947",
+  "ruleFormat": "v2023-01-05",
+  "rules": {
+    "name": "default",
+    "children": [
+      {
+        "name": "Static assets",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "MAX_AGE",
+              "ttl": "7d",
+              "mustRevalidate": true,
+              "enhancedRfc": false
+            }
+          },
+          {
+            "name": "prefetch",
+            "options": {
+              "enabled": true
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/assets/*",
+                "/static/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          },
+          {
+            "name": "fileExtension",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "css",
+                "js",
+                "woff",
+                "woff2"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "any",
+        "comment": "Static site chrome. TTL raised to 7d per CHG0041182."
+      },
+      {
+        "name": "Images",
+        "children": [
+          {
+            "name": "Legacy formats",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "imageManager",
+                "options": {
+                  "enabled": true,
+                  "policyTokenDefault": "rbcdemo-www-im",
+                  "applyBestFileType": true
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "fileExtension",
+                "options": {
+                  "matchOperator": "IS_ONE_OF",
+                  "values": [
+                    "jpg",
+                    "jpeg",
+                    "png"
+                  ],
+                  "matchCaseSensitive": false
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": ""
+          }
+        ],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "MAX_AGE",
+              "ttl": "30d",
+              "mustRevalidate": false,
+              "enhancedRfc": false
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "fileExtension",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "jpg",
+                "jpeg",
+                "png",
+                "webp",
+                "svg",
+                "ico",
+                "avif"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Image Manager policy rbcdemo-www-im"
+      },
+      {
+        "name": "Geo restrictions",
+        "children": [
+          {
+            "name": "Sanctioned countries",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "denyAccess",
+                "options": {
+                  "enabled": true,
+                  "reason": "GEO_BLOCKED"
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "userLocation",
+                "options": {
+                  "matchOperator": "IS_ONE_OF",
+                  "values": [
+                    "country:KP",
+                    "country:IR",
+                    "country:CU",
+                    "country:SY"
+                  ],
+                  "matchCaseSensitive": false
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": "OFAC/OSFI sanctions list. Do NOT remove \u2014 compliance req."
+          }
+        ],
+        "behaviors": [],
+        "criteria": [
+          {
+            "name": "userLocation",
+            "options": {
+              "matchOperator": "IS_NOT_ONE_OF",
+              "values": [
+                "continent:NA",
+                "continent:EU"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Non-NA/EU traffic gets extra screening via children."
+      },
+      {
+        "name": "Maintenance window",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "redirect",
+            "options": {
+              "destinationHostname": "SAME_AS_REQUEST",
+              "destinationPath": "/maintenance.html",
+              "mobileDefaultChoice": "DEFAULT",
+              "queryString": "APPEND",
+              "responseCode": 302
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "matchVariable",
+            "options": {
+              "matchVariableName": "PMUSER_MAINTENANCE",
+              "matchOperator": "IS",
+              "matchExpression": "ON"
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Flip PMUSER_MAINTENANCE=ON in variables to engage."
+      },
+      {
+        "name": "Bot management",
+        "children": [
+          {
+            "name": "Bad bots",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "denyAccess",
+                "options": {
+                  "enabled": true,
+                  "reason": "BOT"
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "requestHeader",
+                "options": {
+                  "headerName": "user-agent",
+                  "matchOperator": "MATCHES_WILDCARD",
+                  "values": [
+                    "*sqlmap*",
+                    "*nikto*",
+                    "*masscan*"
+                  ],
+                  "matchCaseSensitive": false
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": "Cheap signature layer \u2014 real bot logic in Bot Manager."
+          }
+        ],
+        "behaviors": [],
+        "criteria": [],
+        "criteriaMustSatisfy": "all",
+        "comment": "Bot enforcement lives in App Sec Bot Manager (see appsec.json botManagement);\n             this rule only carries the cheap signature layer."
+      },
+      {
+        "name": "Sign-in redirect",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "redirect",
+            "options": {
+              "destinationHostname": "ALTERNATE",
+              "destinationPath": "https://online.rbcdemo.ca/auth/login",
+              "queryString": "APPEND",
+              "responseCode": 302,
+              "mobileDefaultChoice": "DEFAULT"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/signin",
+                "/signin/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Marketing campaigns",
+        "children": [
+          {
+            "name": "QR landing",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "cacheKeyQueryParams",
+                "options": {
+                  "behavior": "INCLUDE",
+                  "exactMatch": true,
+                  "parameters": [
+                    "utm_campaign",
+                    "v"
+                  ]
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "queryStringParameter",
+                "options": {
+                  "parameterName": "utm_campaign",
+                  "matchOperator": "IS_NOT_EMPTY"
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": ""
+          }
+        ],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "MAX_AGE",
+              "ttl": "1h",
+              "mustRevalidate": false,
+              "enhancedRfc": false
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/promo/*",
+                "/campaigns/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "API passthrough",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "caching",
+            "options": {
+              "behavior": "NO_STORE",
+              "mustRevalidate": false,
+              "ttl": "0s",
+              "enhancedRfc": false
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/api/*"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "Was 5m cache \u2014 removed after incident INC0091234."
+      },
+      {
+        "name": "Security headers",
+        "children": [
+          {
+            "name": "CSP",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "modifyOutgoingResponseHeader",
+                "options": {
+                  "action": "ADD",
+                  "customHeaderName": "Content-Security-Policy",
+                  "customHeaderValue": "default-src 'self' *.rbcdemo.ca; frame-ancestors 'none'",
+                  "standardModifyHeaderName": "OTHER"
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "fileExtension",
+                "options": {
+                  "matchOperator": "IS_ONE_OF",
+                  "values": [
+                    "html"
+                  ],
+                  "matchCaseSensitive": false
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": ""
+          }
+        ],
+        "behaviors": [
+          {
+            "name": "modifyOutgoingResponseHeader",
+            "options": {
+              "action": "ADD",
+              "customHeaderName": "X-Content-Type-Options",
+              "customHeaderValue": "nosniff",
+              "standardModifyHeaderName": "OTHER"
+            }
+          }
+        ],
+        "criteria": [],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Cache busting",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "cacheKeyQueryParams",
+            "options": {
+              "behavior": "INCLUDE",
+              "exactMatch": true,
+              "parameters": [
+                "v"
+              ]
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "queryStringParameter",
+            "options": {
+              "parameterName": "v",
+              "matchOperator": "IS_NOT_EMPTY"
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Regional content",
+        "children": [
+          {
+            "name": "Quebec",
+            "children": [],
+            "behaviors": [
+              {
+                "name": "setVariable",
+                "options": {
+                  "variableName": "PMUSER_REGION",
+                  "valueSource": "EXPRESSION",
+                  "variableValue": "QC",
+                  "transform": "NONE"
+                }
+              }
+            ],
+            "criteria": [
+              {
+                "name": "userLocation",
+                "options": {
+                  "matchOperator": "IS_ONE_OF",
+                  "values": [
+                    "region:CA-QC"
+                  ],
+                  "matchCaseSensitive": false
+                }
+              }
+            ],
+            "criteriaMustSatisfy": "all",
+            "comment": "French default locale for QC traffic."
+          }
+        ],
+        "behaviors": [],
+        "criteria": [
+          {
+            "name": "hostname",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "www.rbcdemo.ca"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "mPulse exclusions",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "mPulse",
+            "options": {
+              "enabled": false,
+              "apiKey": "",
+              "requirePci": false,
+              "titleOverride": ""
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "path",
+            "options": {
+              "matchOperator": "MATCHES_ONE_OF",
+              "values": [
+                "/health",
+                "/status"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": ""
+      },
+      {
+        "name": "Campaign microsite origin",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "origin",
+            "options": {
+              "cacheKeyHostname": "ORIGIN_HOSTNAME",
+              "compress": true,
+              "enableTrueClientIp": false,
+              "forwardHostHeader": "ORIGIN_HOSTNAME",
+              "hostname": "origin-campaign.rbcdemo.ca",
+              "httpPort": 80,
+              "httpsPort": 443,
+              "ipVersion": "IPV4",
+              "minTlsVersion": "TLSV1_2",
+              "originCertificate": "",
+              "originSni": true,
+              "originType": "CUSTOMER",
+              "ports": "443",
+              "tlsVersionTitle": "",
+              "trueClientIpClientSetting": false,
+              "trueClientIpHeader": "True-Client-IP",
+              "verificationMode": "PLATFORM_SETTINGS"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "hostname",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "promo.rbcdemo.ca"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "ADDED out-of-band 2026-08-14 \u2014 not yet in TF golden (ticket EDG-2211)."
+      }
+    ],
+    "behaviors": [
+      {
+        "name": "origin",
+        "options": {
+          "cacheKeyHostname": "ORIGIN_HOSTNAME",
+          "compress": true,
+          "enableTrueClientIp": true,
+          "forwardHostHeader": "REQUEST_HOST_HEADER",
+          "hostname": "origin-www.rbcdemo.ca",
+          "httpPort": 80,
+          "httpsPort": 443,
+          "ipVersion": "IPV4",
+          "minTlsVersion": "TLSV1_2",
+          "originCertificate": "",
+          "originSni": true,
+          "originType": "CUSTOMER",
+          "ports": "443",
+          "tlsVersionTitle": "",
+          "trueClientIpClientSetting": false,
+          "trueClientIpHeader": "True-Client-IP",
+          "verificationMode": "CUSTOM",
+          "customValidCnValues": [
+            "{{Origin Hostname}}",
+            "{{Forward Host Header}}"
+          ],
+          "originCertsToHonor": "STANDARD_CERTIFICATE_AUTHORITIES",
+          "standardCertificateAuthorities": [
+            "akamai-perimeter"
+          ]
+        }
+      },
+      {
+        "name": "cpCode",
+        "options": {
+          "id": 92601,
+          "name": "www.rbcdemo.ca-cpcode"
+        }
+      },
+      {
+        "name": "caching",
+        "options": {
+          "behavior": "MAX_AGE",
+          "mustRevalidate": false,
+          "ttl": "4h",
+          "enhancedRfc": false,
+          "honorBrowserTtl": false,
+          "sendTrueClientIpHeader": false
+        }
+      },
+      {
+        "name": "sureRoute",
+        "options": {
+          "enabled": true,
+          "srStatisticalMethod": "ALPHA",
+          "testObjectUrl": "/akamai/sureroute-test-object.html",
+          "toAlternate": false,
+          "alternateHostname": ""
+        }
+      },
+      {
+        "name": "tieredDistribution",
+        "options": {
+          "enabled": false,
+          "tieredDistributionMap": "CH2"
+        }
+      },
+      {
+        "name": "prefetch",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "allowPost",
+        "options": {
+          "allowWithoutContentLength": false,
+          "enabled": true
+        }
+      },
+      {
+        "name": "http2",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "http3",
+        "options": {
+          "enabled": true
+        }
+      },
+      {
+        "name": "gzipResponse",
+        "options": {
+          "behavior": "ALWAYS"
+        }
+      },
+      {
+        "name": "report",
+        "options": {
+          "logHost": false,
+          "logReferer": true,
+          "logUserAgent": true,
+          "logAcceptLanguage": false,
+          "logCookies": "OFF",
+          "logCustomLogField": false
+        }
+      },
+      {
+        "name": "mPulse",
+        "options": {
+          "enabled": true,
+          "apiKey": "",
+          "bufferSize": "",
+          "requirePci": false,
+          "titleOverride": ""
+        }
+      },
+      {
+        "name": "webApplicationFirewall",
+        "options": {
+          "enable": true
+        }
+      },
+      {
+        "name": "adaptiveAcceleration",
+        "options": {
+          "enablePreconnect": true,
+          "enablePreload": true,
+          "enablePush": true,
+          "enableRo": true,
+          "enableBrotliCompression": true,
+          "enableDnsPrefetch": true,
+          "enableForNoncacheable": false,
+          "mPulseBpulseLoaderSnippetVersion": "v12",
+          "source": "mPulse"
+        }
+      },
+      {
+        "name": "enhancedAkamaiProtocol",
+        "options": {
+          "display": "OFF",
+          "enabled": true
+        }
+      },
+      {
+        "name": "removeVary",
+        "options": {
+          "enabled": false
+        }
+      },
+      {
+        "name": "modifyOutgoingResponseHeader",
+        "options": {
+          "action": "ADD",
+          "customHeaderName": "Strict-Transport-Security",
+          "customHeaderValue": "max-age=86400",
+          "standardModifyHeaderName": "OTHER"
+        }
+      },
+      {
+        "name": "cacheKeyQueryParams",
+        "options": {
+          "behavior": "IGNORE",
+          "exactMatch": true,
+          "parameters": []
+        }
+      },
+      {
+        "name": "datastream",
+        "options": {
+          "enabled": true,
+          "logStreamName": "rbcdemo-edge-logs",
+          "streamType": "COMPLETE_LOGS"
+        }
+      }
+    ],
+    "options": {
+      "is_secure": true
+    },
+    "variables": [
+      {
+        "name": "PMUSER_MAINTENANCE",
+        "value": "OFF",
+        "description": "ON engages maintenance-page redirect rule",
+        "hidden": false,
+        "sensitive": false
+      },
+      {
+        "name": "PMUSER_REGION",
+        "value": "",
+        "description": "Region override for locale defaults",
+        "hidden": false,
+        "sensitive": false
+      },
+      {
+        "name": "PMUSER_ORIGIN_SEL",
+        "value": "PRIMARY",
+        "description": "Origin selector: PRIMARY|CAMPAIGN",
+        "hidden": false,
+        "sensitive": false
+      }
+    ]
+  },
+  "warnings": [],
+  "errors": []
+}

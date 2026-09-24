@@ -1,0 +1,227 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "id": "def0123456789abcdef0123456789abc",
+      "name": "Cloudflare Managed + OWASP",
+      "kind": "zone",
+      "version": "3",
+      "phase": "http_request_firewall_managed",
+      "last_updated": "2026-08-20T15:30:00.000000Z",
+      "rules": [
+        {
+          "id": "3456789abcdef0123456789abcdef012",
+          "version": "2",
+          "description": "Execute Cloudflare Managed Ruleset",
+          "action": "execute",
+          "enabled": true,
+          "expression": "true",
+          "action_parameters": {
+            "id": "efb7b8c949ac4650a09736fc376e9aee",
+            "overrides": {
+              "categories": [
+                {
+                  "category": "wordpress",
+                  "action": "log",
+                  "enabled": true
+                },
+                {
+                  "category": "joomla",
+                  "action": "log",
+                  "enabled": true
+                }
+              ],
+              "rules": [
+                {
+                  "id": "5de7edfa648c4d6891c0e334fca04c1f",
+                  "action": "log",
+                  "enabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "abcdef0123456789abcdef0123456789",
+          "version": "1",
+          "description": "Execute OWASP Core Ruleset",
+          "action": "execute",
+          "enabled": true,
+          "expression": "true",
+          "action_parameters": {
+            "id": "4814384a9e5d4991b9815dcfc25d2f1f",
+            "overrides": {
+              "sensitivity_level": "high"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "456789abcdef0123456789abcdef0123",
+      "name": "Custom firewall",
+      "kind": "zone",
+      "version": "3",
+      "phase": "http_request_firewall_custom",
+      "last_updated": "2026-08-20T15:30:00.000000Z",
+      "rules": [
+        {
+          "id": "f0123456789abcdef0123456789abcde",
+          "version": "1",
+          "description": "Geo deny \u2014 sanctioned countries",
+          "action": "block",
+          "enabled": true,
+          "expression": "(ip.geoip.country in {\"KP\" \"IR\" \"CU\" \"SY\"})"
+        },
+        {
+          "id": "6789abcdef0123456789abcdef012345",
+          "version": "1",
+          "description": "Known-bad ASN block",
+          "action": "block",
+          "enabled": true,
+          "expression": "(ip.geoip.asnum in {9009 43350 202425})"
+        }
+      ]
+    },
+    {
+      "id": "bcdef0123456789abcdef0123456789a",
+      "name": "Rate limits",
+      "kind": "zone",
+      "version": "3",
+      "phase": "http_ratelimit",
+      "last_updated": "2026-08-20T15:30:00.000000Z",
+      "rules": [
+        {
+          "id": "bcdef0123456789abcdef0123456789a",
+          "version": "1",
+          "description": "Login rate limit",
+          "action": "block",
+          "enabled": true,
+          "expression": "(http.request.uri.path eq \"/auth/login\" and http.request.method eq \"POST\")",
+          "ratelimit": {
+            "characteristics": [
+              "ip.src",
+              "cf.colo.id"
+            ],
+            "period": 60,
+            "requests_per_period": 30,
+            "mitigation_timeout": 300
+          }
+        }
+      ]
+    },
+    {
+      "id": "23456789abcdef0123456789abcdef01",
+      "name": "Cache settings",
+      "kind": "zone",
+      "version": "3",
+      "phase": "http_request_cache_settings",
+      "last_updated": "2026-08-20T15:30:00.000000Z",
+      "rules": [
+        {
+          "id": "789abcdef0123456789abcdef0123456",
+          "version": "1",
+          "description": "Static cache TTL",
+          "action": "set_cache_settings",
+          "enabled": true,
+          "expression": "(http.request.uri.path.extension in {\"css\" \"js\" \"woff2\"})",
+          "action_parameters": {
+            "cache": true,
+            "edge_ttl": {
+              "mode": "override_origin",
+              "default": 604800
+            },
+            "browser_ttl": {
+              "mode": "respect_origin"
+            },
+            "cache_key": {
+              "custom_key": {
+                "query_string": {
+                  "include": []
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "9abcdef0123456789abcdef012345678",
+      "name": "Request transforms",
+      "kind": "zone",
+      "version": "3",
+      "phase": "http_request_transform",
+      "last_updated": "2026-08-20T15:30:00.000000Z",
+      "rules": [
+        {
+          "id": "3456789abcdef0123456789abcdef012",
+          "version": "1",
+          "description": "Strip tracking params",
+          "action": "rewrite",
+          "enabled": true,
+          "expression": "true",
+          "action_parameters": {
+            "uri": {
+              "query": {
+                "expression": "http.request.uri.query & !contains(http.request.uri.query, \"utm_\")"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "0123456789abcdef0123456789abcdef",
+      "name": "Response header transforms",
+      "kind": "zone",
+      "version": "3",
+      "phase": "http_response_headers_transform",
+      "last_updated": "2026-08-20T15:30:00.000000Z",
+      "rules": [
+        {
+          "id": "f0123456789abcdef0123456789abcde",
+          "version": "1",
+          "description": "HSTS",
+          "action": "rewrite",
+          "enabled": true,
+          "expression": "true",
+          "action_parameters": {
+            "headers": {
+              "Strict-Transport-Security": {
+                "operation": "set",
+                "value": "max-age=31536000; includeSubDomains"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "789abcdef0123456789abcdef0123456",
+      "name": "Origin routing",
+      "kind": "zone",
+      "version": "3",
+      "phase": "http_request_origin",
+      "last_updated": "2026-08-20T15:30:00.000000Z",
+      "rules": [
+        {
+          "id": "bcdef0123456789abcdef0123456789a",
+          "version": "1",
+          "description": "Route to origin pool",
+          "action": "route",
+          "enabled": true,
+          "expression": "true",
+          "action_parameters": {
+            "origin": {
+              "host": "origin-online.rbcdemo.ca",
+              "port": 443
+            },
+            "host_header": "online.rbcdemo.ca"
+          }
+        }
+      ]
+    }
+  ]
+}
