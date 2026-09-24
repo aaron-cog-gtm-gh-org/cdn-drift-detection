@@ -105,9 +105,12 @@ def _demo():
 def test_demo_every_method_renders():
     r = _demo()
     r.phase(1, 9, "Golden state", subtitle="sub")
+    r.golden_state(["www.rbcdemo.ca"], {"www.rbcdemo.ca": "role"}, {"www.rbcdemo.ca": "abc123"}, "v")
     r.step("line")
     r.artifact("www.akamai.json", "/tmp/x.json", sha="abc", nbytes=5)
+    r.artifact_table([("f.json", "/tmp/f.json", "abc", 5)])
     r.kv("mapping_version", "v")
+    r.fetch_table([("www.rbcdemo.ca", "rules", "/papi/x")])
     r.fetch("akamai", "rules", "www.rbcdemo.ca", "/papi/v1/properties/x/rules")
     r.session_created("www.rbcdemo.ca", "devin-1",
                       "https://x/sessions/devin-1")
@@ -122,12 +125,46 @@ def test_demo_every_method_renders():
     r.summary("run-1", {"www.rbcdemo.ca": REPORT}, "/tmp/art")
     r.warn("w")
     r.error("e")
+    r.schema_summary({
+        "required": ["domain"],
+        "properties": {
+            "verdict": {"enum": ["in_sync"]},
+            "findings": {"items": {
+                "required": ["field"],
+                "properties": {
+                    "severity": {"enum": ["high"]},
+                    "equivalence": {"enum": ["equivalent"]},
+                    "remediation_route": {"enum": ["iac_pr"]},
+                },
+            }},
+        },
+    })
     r.schema_block({"type": "object"})
     r.prompt_block("www.rbcdemo.ca", "PROMPT BODY")
     text = r.console.file.getvalue()
     assert "Golden state" in text and "PROMPT BODY" in text
     assert "critical" in text and "tls.min_version" in text
     assert "equivalent" in text and "31536000s" in text
+
+
+def test_replay_renders_saved_reports(tmp_path):
+    import json as _json
+    from orchestrator.run_detection import replay
+    det = tmp_path / "run-x" / "detection"
+    det.mkdir(parents=True)
+    (det / "www.rbcdemo.ca.json").write_text(_json.dumps(REPORT))
+    buf = StringIO()
+    rc = replay(str(det), PlainReporter(), 9)
+    assert rc == 0
+    # demo path renders without raising too
+    rc = replay(str(det), _demo(), 9)
+
+
+def test_replay_missing_dir_exits():
+    import pytest
+    from orchestrator.run_detection import replay
+    with pytest.raises(SystemExit):
+        replay("/nonexistent/run", PlainReporter(), 9)
 
 
 def test_make_reporter_selection(monkeypatch):

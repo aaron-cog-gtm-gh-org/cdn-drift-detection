@@ -27,6 +27,8 @@ def _fetch(source, provider, kind, domain, on_fetch):
 
 def collect_akamai(source, domain, on_fetch=None):
     """Akamai side of a domain bundle — property, rules, hostnames, appsec."""
+    rules = _fetch(source, "akamai", "rules", domain, on_fetch)
+    hostnames = _fetch(source, "akamai", "hostnames", domain, on_fetch)
     appsec = None
     if source.meta[domain].get("config_id") is not None:
         appsec = _fetch(source, "akamai", "appsec", domain, on_fetch)
@@ -36,8 +38,8 @@ def collect_akamai(source, domain, on_fetch=None):
             "latestVersion": source.meta[domain]["version"],
             "propertyName": domain,
         },
-        "rules": _fetch(source, "akamai", "rules", domain, on_fetch),
-        "hostnames": _fetch(source, "akamai", "hostnames", domain, on_fetch),
+        "rules": rules,
+        "hostnames": hostnames,
         "appsec": appsec,
     }
 

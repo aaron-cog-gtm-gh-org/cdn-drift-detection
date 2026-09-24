@@ -36,7 +36,8 @@ from orchestrator import collect, config
 from orchestrator.console import make_reporter
 from orchestrator.devin_client import DevinClient
 from orchestrator.prompts import DETECTION_PROMPT, DOMAIN_ROLES
-from orchestrator.remediate import execute_remediation, plan_remediation
+from orchestrator.remediate import (execute_remediation, plan_remediation,
+                                    route_findings)
 from orchestrator.schema import DETECTION_SCHEMA
 from store.golden_store import connect, get_golden, get_mapping
 
@@ -135,6 +136,11 @@ def main(argv=None):
                     help="collect + render prompts; upload nothing, create no sessions")
     ap.add_argument("--demo", action="store_true", help="rich output")
     ap.add_argument("--plain", action="store_true", help="plain output")
+    ap.add_argument("--show-schema", action="store_true",
+                    help="print the full JSON Schema instead of the compact summary")
+    ap.add_argument("--replay", metavar="RUN_DIR",
+                    help="re-render phases 8-9 from an existing "
+                         "artifacts/<run_id>/detection/ — no API calls")
     ap.add_argument("--max-acu", type=int, default=config.MAX_ACU_LIMIT)
     ap.add_argument("--devin-mode", default=config.DEVIN_MODE)
     ap.add_argument("--no-remediate", action="store_true")
@@ -146,6 +152,9 @@ def main(argv=None):
     out = make_reporter(demo=args.demo, plain=args.plain)
     total = 9
 
+    if args.replay:
+        return replay(args.replay, out, total)
+
     domains = args.domain or DOMAINS
     rid = config.run_id()
 
@@ -153,20 +162,23 @@ def main(argv=None):
     golden_shas, mapping_version = golden_info(domains)
     out.phase(1, total, "Golden state")
     out.step(f"run {rid} — domains: {', '.join(domains)}")
-    for d in domains:
-        out.step(f"  {d}: golden_sha={golden_shas[d][:12]}")
-    out.step(f"mapping_version={mapping_version}")
+    out.golden_state(domains, DOMAIN_ROLES, golden_shas, mapping_version)
 
     # [2/9] + [3/9] pull provider configs (fetch lines via on_fetch)
     source = ApiSource(args.akamai_base, args.cloudflare_base)
     bundles = {}
     out.phase(2, total, "Pulling Akamai configs")
+    ak_rows = []
     for d in domains:
-        bundles[d] = {"akamai": collect.collect_akamai(source, d, out.fetch)}
+        bundles[d] = {"akamai": collect.collect_akamai(
+            source, d, lambda p, k, dom, u: ak_rows.append((dom, k, u)))}
+    out.fetch_table(ak_rows)
     out.phase(3, total, "Pulling Cloudflare configs")
+    cf_rows = []
     for d in domains:
-        bundles[d]["cloudflare"] = collect.collect_cloudflare(source, d,
-                                                              out.fetch)
+        bundles[d]["cloudflare"] = collect.collect_cloudflare(
+            source, d, lambda p, k, dom, u: cf_rows.append((dom, k, u)))
+    out.fetch_table(cf_rows)
 
     # [4/9] write bundles
     out.phase(4, total, "Writing provider bundles",
@@ -175,17 +187,20 @@ def main(argv=None):
                                      mapping_version, config.ARTIFACTS_DIR)
     manifest["sim_bases"] = {"akamai": args.akamai_base,
                              "cloudflare": args.cloudflare_base}
-    for d in domains:
-        for side in ("akamai", "cloudflare"):
-            p = manifest["files"][d][side]["path"]
-            out.artifact(Path(p).name, p,
-                         sha=manifest["files"][d][side]["sha256"],
-                         nbytes=os.path.getsize(p))
+    out.artifact_table([
+        (Path(manifest["files"][d][side]["path"]).name,
+         manifest["files"][d][side]["path"],
+         manifest["files"][d][side]["sha256"],
+         os.path.getsize(manifest["files"][d][side]["path"]))
+        for d in domains for side in ("akamai", "cloudflare")])
     prompts = {d: render_prompt(d, golden_shas[d], mapping_version, manifest)
                for d in domains}
 
     if args.dry_run:
-        out.schema_block(DETECTION_SCHEMA)
+        if args.show_schema:
+            out.schema_block(DETECTION_SCHEMA)
+        else:
+            out.schema_summary(DETECTION_SCHEMA)
         for d in domains:
             out.prompt_block(d, prompts[d])
         out.step("\n(dry run — nothing uploaded, no sessions created)")
@@ -281,6 +296,52 @@ def main(argv=None):
                          f"verdict inconclusive")
     out.summary(rid, reports, str(config.ARTIFACTS_DIR / rid))
     return 1 if bad else 0
+
+
+def replay(run_dir, out, total):
+    """Re-render phases 8-9 from a saved detection dir — no API, no ACUs."""
+    det_dir = Path(run_dir)
+    if not det_dir.is_dir():
+        det_dir = config.ARTIFACTS_DIR / run_dir
+    if (det_dir / "detection").is_dir():
+        det_dir = det_dir / "detection"  # accept the run dir or the detection dir
+    files = sorted(det_dir.glob("*.json")) if det_dir.is_dir() else []
+    reports = {}
+    for p in files:
+        rep = json.loads(p.read_text())
+        if isinstance(rep, dict) and "domain" in rep and "findings" in rep:
+            reports[rep["domain"]] = rep
+    if not reports:
+        sys.exit(f"no detection reports under {run_dir} "
+                 "(expected artifacts/<run_id>/detection/*.json)")
+    out.phase(8, total, "Findings",
+              subtitle=f"REPLAY of {det_dir} — saved reports, no live sessions")
+    for d, rep in reports.items():
+        out.findings(d, rep)
+        out.equivalences(d, rep)
+    out.phase(9, total, "Remediation routing (replay — no sessions created)")
+    for d, rep in reports.items():
+        if rep["verdict"] == "inconclusive":
+            out.deferred(d, "(all)", "verdict inconclusive — skipped")
+            continue
+        grouped, unknown = route_findings(rep)
+        for route, fs in grouped.items():
+            if not fs:
+                continue
+            if route == "provider_api":
+                for f in fs:
+                    out.deferred(d, f["field"],
+                                 "provider writes are out of scope "
+                                 "until phase 04")
+            else:
+                out.step(f"  {d}: {route} -> {len(fs)} finding(s) "
+                         "would route to a remediation session")
+        for f in unknown:
+            out.deferred(d, f["field"],
+                         f"unrecognized remediation_route "
+                         f"{f.get('remediation_route')!r}")
+    out.summary(det_dir.parent.name, reports, str(det_dir.parent))
+    return 0
 
 
 if __name__ == "__main__":

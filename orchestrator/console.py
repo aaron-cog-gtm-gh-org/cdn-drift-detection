@@ -21,8 +21,12 @@ The interface both classes implement:
     deferred(domain, field, note)
     summary(run_id, reports, artifacts_dir)
     warn(text) / error(text)
+    golden_state(domains, roles, shas, mapping_version)   # phase 1
+    fetch_table(rows)            # rows of (domain, document, request)
+    artifact_table(rows)         # rows of (name, path, sha256, nbytes)
     fetch(provider, kind, domain, url)   # one line per document pulled
-    schema_block(schema)          # dry-run only
+    schema_summary(schema)        # compact contract view (dry-run default)
+    schema_block(schema)          # full schema dump (--show-schema)
     prompt_block(domain, prompt)  # dry-run only
     sessions_live()               # context manager wrapping phase 7
 """
@@ -33,6 +37,17 @@ from pathlib import Path
 
 class PlainReporter:
     """Byte-for-byte compatible with the original print() calls."""
+
+    def golden_state(self, domains, roles, shas, mapping_version):
+        for d in domains:
+            print(f"  {d}: golden_sha={shas[d][:12]}")
+        print(f"mapping_version={mapping_version}")
+
+    def fetch_table(self, rows):
+        pass
+
+    def artifact_table(self, rows):
+        pass
 
     def phase(self, index, total, title, subtitle=None):
         pass
@@ -82,6 +97,10 @@ class PlainReporter:
     def error(self, text):
         print(text, file=sys.stderr)
 
+    def schema_summary(self, schema):
+        # plain output stays byte-identical: the old dump, unchanged
+        self.schema_block(schema)
+
     def schema_block(self, schema):
         import json
         print("\n--- structured output schema ---")
@@ -126,6 +145,40 @@ class DemoReporter:
         if subtitle:
             self.console.print(f"  [dim]{subtitle}[/]")
 
+    def golden_state(self, domains, roles, shas, mapping_version):
+        from rich.table import Table
+        t = Table(show_lines=False, pad_edge=False)
+        t.add_column("domain", style="bold")
+        t.add_column("role")
+        t.add_column("golden_sha", style="magenta")
+        for d in domains:
+            t.add_row(d, roles.get(d, ""), shas[d][:12])
+        self.console.print(t)
+        self.kv("mapping_version", mapping_version)
+
+    def fetch_table(self, rows):
+        from rich.table import Table
+        t = Table(show_lines=False, pad_edge=False)
+        t.add_column("domain", style="bold", no_wrap=True)
+        t.add_column("document")
+        t.add_column("request", style="dim", overflow="ellipsis",
+                     no_wrap=True)
+        for domain, kind, url in rows:
+            t.add_row(domain, kind, f"GET {url}" if url else "")
+        self.console.print(t)
+
+    def artifact_table(self, rows):
+        from rich.table import Table
+        t = Table(show_lines=False, pad_edge=False)
+        t.add_column("file", no_wrap=True)
+        t.add_column("sha256", style="magenta", no_wrap=True)
+        t.add_column("size", justify="right", no_wrap=True)
+        for name, path, sha, nbytes in rows:
+            t.add_row(f"[link=file://{path}]{name}[/link]",
+                      str(sha)[:12] if sha else "",
+                      f"{nbytes} B" if nbytes is not None else "")
+        self.console.print(t)
+
     def step(self, text):
         self.console.print(text)
 
@@ -144,8 +197,7 @@ class DemoReporter:
         self.console.print(f"  [bold]{label}[/]  {value}")
 
     def fetch(self, provider, kind, domain, url):
-        self.console.print(f"    {domain}  [bold]{kind}[/]  "
-                           f"[dim]GET {url}[/]")
+        pass  # fetch lines render via fetch_table
 
     # -- sessions ---------------------------------------------------------------
 
@@ -224,14 +276,17 @@ class DemoReporter:
         eq = report.get("equivalent_but_different", [])
         if not eq:
             return
+        from rich.table import Table
         self.console.print("  [bold]equivalent — same meaning, "
                            "different representation (not drift):[/]")
+        t = Table(show_lines=False, pad_edge=False, show_header=False)
+        t.add_column("field", no_wrap=True, style="bold")
+        t.add_column("provider", no_wrap=True, style="dim")
+        t.add_column("reason", style="dim")
         for e in eq:
-            reason = e.get("why_equivalent")
-            line = f"  [dim]·[/] {e['field']} [dim]({e['provider']})[/]"
-            if reason:
-                line += f" — [dim]{reason}[/]"
-            self.console.print(line)
+            t.add_row(e["field"], f"({e['provider']})",
+                      e.get("why_equivalent", ""))
+        self.console.print(t)
 
     def remediation(self, route, domain, session_id, url=None):
         self.console.print(f"  [{route}] {domain} → [bold]{session_id}[/]"
@@ -274,12 +329,31 @@ class DemoReporter:
 
     # -- dry-run ----------------------------------------------------------------
 
+    def schema_summary(self, schema):
+        """Compact contract view — no 250-line dump in front of an audience."""
+        from rich.table import Table
+        props = schema["properties"]
+        fprops = props["findings"]["items"]["properties"]
+        t = Table(show_lines=False, pad_edge=False,
+                  title="structured output contract", title_justify="left")
+        t.add_column("part", style="bold", no_wrap=True)
+        t.add_column("value")
+        t.add_row("required", ", ".join(schema["required"]))
+        t.add_row("verdict", " | ".join(props["verdict"]["enum"]))
+        t.add_row("finding fields",
+                  ", ".join(props["findings"]["items"]["required"]))
+        t.add_row("severity", " | ".join(fprops["severity"]["enum"]))
+        t.add_row("equivalence", " | ".join(fprops["equivalence"]["enum"]))
+        t.add_row("route",
+                  " | ".join(fprops["remediation_route"]["enum"]))
+        self.console.print(t)
+
     def schema_block(self, schema):
         import json
         from rich.panel import Panel
         from rich.syntax import Syntax
         self.console.print(Panel(
-            Syntax(json.dumps(schema, indent=2), "json"),
+            Syntax(json.dumps(schema, indent=2), "json", word_wrap=True),
             title="structured output schema", border_style="dim"))
 
     def prompt_block(self, domain, prompt):
