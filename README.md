@@ -58,7 +58,7 @@ Flags worth knowing on stage: `--demo` / `--plain` (rich output is the
 default on a tty, plain when piped so CI and captured output stay stable),
 `--full-equivalences` (expand the equivalent-fields reasoning),
 `--show-schema` (print the full output contract in a dry run), `--domain`
-(repeatable subset), `--no-remediate`, `--max-acu`. See
+(repeatable subset), `--no-remediate`, `--max-acu`, `--pace` (demo-step delay; default 0.35s, `--pace 0` for a fast run). See
 `docs/orchestrator.md` for the nine phases and the API notes.
 
 ## Validate
