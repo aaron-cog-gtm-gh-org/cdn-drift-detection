@@ -127,38 +127,7 @@
       },
       {
         "name": "Geo restrictions",
-        "children": [
-          {
-            "name": "Sanctioned countries",
-            "children": [],
-            "behaviors": [
-              {
-                "name": "denyAccess",
-                "options": {
-                  "enabled": true,
-                  "reason": "GEO_BLOCKED"
-                }
-              }
-            ],
-            "criteria": [
-              {
-                "name": "userLocation",
-                "options": {
-                  "matchOperator": "IS_ONE_OF",
-                  "values": [
-                    "country:KP",
-                    "country:IR",
-                    "country:CU",
-                    "country:SY"
-                  ],
-                  "matchCaseSensitive": false
-                }
-              }
-            ],
-            "criteriaMustSatisfy": "all",
-            "comment": "OFAC/OSFI sanctions list. Do NOT remove \u2014 compliance req."
-          }
-        ],
+        "children": [],
         "behaviors": [],
         "criteria": [
           {
@@ -175,6 +144,36 @@
         ],
         "criteriaMustSatisfy": "all",
         "comment": "Non-NA/EU traffic gets extra screening via children."
+      },
+      {
+        "name": "Sanctioned countries",
+        "children": [],
+        "behaviors": [
+          {
+            "name": "denyAccess",
+            "options": {
+              "enabled": true,
+              "reason": "GEO_BLOCKED"
+            }
+          }
+        ],
+        "criteria": [
+          {
+            "name": "userLocation",
+            "options": {
+              "matchOperator": "IS_ONE_OF",
+              "values": [
+                "country:KP",
+                "country:IR",
+                "country:CU",
+                "country:SY"
+              ],
+              "matchCaseSensitive": false
+            }
+          }
+        ],
+        "criteriaMustSatisfy": "all",
+        "comment": "OFAC/OSFI sanctions list. Do NOT remove \u2014 compliance req."
       },
       {
         "name": "Maintenance window",

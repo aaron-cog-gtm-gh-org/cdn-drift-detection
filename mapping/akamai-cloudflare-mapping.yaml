@@ -582,7 +582,7 @@ fields:
     comparator: set_equal
     domains: [www.rbcdemo.ca]
     akamai:
-      path: "$.rules.children[?(@.name=='Geo restrictions')].children[*].criteria[?(@.name=='userLocation')].options.values"
+      path: "$.rules.children[?(@.name=='Sanctioned countries')].criteria[?(@.name=='userLocation')].options.values"
       strip_prefix: "country:"
     cloudflare:
       fixture: rulesets
