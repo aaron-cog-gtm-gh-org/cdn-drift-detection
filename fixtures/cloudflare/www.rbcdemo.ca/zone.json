@@ -4,7 +4,7 @@
   "messages": [],
   "result": {
     "id": "1a2b3c4d5e6f708192a3b4c5d6e7f801",
-    "name": "rbcdemo.ca",
+    "name": "www.rbcdemo.ca",
     "status": "active",
     "paused": false,
     "type": "full",
@@ -19,6 +19,7 @@
     ],
     "original_dnshost": "rbcdemo.ca",
     "original_registrar": "webnames.ca",
+    "zone_kind": "subdomain",
     "activated_on": "2026-03-14T18:22:11.000000Z",
     "created_on": "2026-02-27T14:03:09.000000Z",
     "modified_on": "2026-09-10T09:41:00.000000Z",

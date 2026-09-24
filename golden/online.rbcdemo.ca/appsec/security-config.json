@@ -1,5 +1,5 @@
 {
-  "configId": "waf_90011",
+  "configId": 90011,
   "configName": "online.rbcdemo.ca security config",
   "configVersion": 23,
   "productionStatus": "ACTIVATED",
@@ -98,7 +98,7 @@
   "ratePolicies": {
     "items": [
       {
-        "id": "rp_9001",
+        "id": 9001,
         "name": "Global API rate",
         "averageThreshold": 500,
         "burstThreshold": 100,
@@ -107,7 +107,7 @@
         "matchType": "ALL_REQUESTS"
       },
       {
-        "id": "rp_9002",
+        "id": 9002,
         "name": "Login rate policy",
         "averageThreshold": 30,
         "burstThreshold": 5,

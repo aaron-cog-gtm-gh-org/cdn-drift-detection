@@ -29,6 +29,10 @@ fixtures, golden Terraform, and the semantic field mapping.
   (~50 fields, value tables, comparators, provider-default suppression).
 - `docs/drift-scenarios.md` — the 12 seeded drift/suppression scenarios.
 - `docs/fixture-notes.md` — version targets and every schema guess.
+- `docs/simulators.md` — phase-02 simulator endpoints, auth, approximations.
+- `sim/` — FastAPI simulators serving fixtures over PAPI/App Sec and
+  Cloudflare v4 wire shapes (read-only).
+- `store/` — SQLite golden-state store (`golden.db` is generated, gitignored).
 - `scripts/validate_fixtures.py` — the exit-gate validator.
 
 ## Validate
@@ -42,3 +46,16 @@ terraform fmt -check -recursive golden/
 The validator resolves every mapping path against its fixture, applies each
 comparator against golden, and asserts the findings equal the documented set —
 including that both suppression cases produce no finding.
+
+## Simulators and golden store (phase 02)
+
+```sh
+scripts/run_simulators.sh                       # akamai :8081, cloudflare :8082
+.venv/bin/python scripts/load_golden_store.py   # seeds store/golden.db
+.venv/bin/python scripts/validate_fixtures.py --source api --golden store
+```
+
+`--source api` pulls fixtures over the simulators' HTTP APIs and `--golden
+store` reads intended state from SQLite; the finding set is identical to
+`--source disk --golden files`. See `docs/simulators.md` for endpoints and
+curl examples.

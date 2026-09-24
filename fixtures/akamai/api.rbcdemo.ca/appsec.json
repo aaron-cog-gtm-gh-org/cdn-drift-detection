@@ -1,5 +1,5 @@
 {
-  "configId": "waf_90012",
+  "configId": 90012,
   "configName": "api.rbcdemo.ca security config",
   "configVersion": 9,
   "productionStatus": "ACTIVATED",
@@ -98,7 +98,7 @@
   "ratePolicies": {
     "items": [
       {
-        "id": "rp_9001",
+        "id": 9001,
         "name": "Global API rate",
         "averageThreshold": 500,
         "burstThreshold": 100,
@@ -107,7 +107,7 @@
         "matchType": "ALL_REQUESTS"
       },
       {
-        "id": "rp_partner",
+        "id": 9101,
         "name": "Open-banking partner rate",
         "averageThreshold": 1000,
         "burstThreshold": 50,
@@ -119,7 +119,7 @@
         ]
       },
       {
-        "id": "rp_mobile",
+        "id": 9102,
         "name": "Mobile app rate",
         "averageThreshold": 600,
         "burstThreshold": 100,

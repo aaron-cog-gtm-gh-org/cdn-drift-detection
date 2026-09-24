@@ -95,12 +95,12 @@ resource "akamai_appsec_security_policy" "online_default" {
 
 resource "akamai_appsec_rate_policy" "online_global" {
   config_id   = akamai_appsec_configuration.online.config_id
-  rate_policy = jsonencode({ for p in local.appsec_config.ratePolicies.items : p.id => p }["rp_9001"])
+  rate_policy = jsonencode({ for p in local.appsec_config.ratePolicies.items : p.id => p }[9001])
 }
 
 resource "akamai_appsec_rate_policy" "online_login" {
   config_id   = akamai_appsec_configuration.online.config_id
-  rate_policy = jsonencode({ for p in local.appsec_config.ratePolicies.items : p.id => p }["rp_9002"])
+  rate_policy = jsonencode({ for p in local.appsec_config.ratePolicies.items : p.id => p }[9002])
 }
 
 
