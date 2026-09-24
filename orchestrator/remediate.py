@@ -39,11 +39,21 @@ def findings_block(findings):
 
 
 def route_findings(report):
-    """Split a domain's findings by remediation_route."""
+    """Split a domain's findings by remediation_route.
+
+    Returns (grouped, unknown): findings with an unrecognized route go to
+    `unknown` rather than crashing — this is parsing model output, and the
+    detection sessions have already run by the time this executes.
+    """
     grouped = {"iac_pr": [], "provider_api": [], "human_review": []}
+    unknown = []
     for f in report.get("findings", []):
-        grouped[f["remediation_route"]].append(f)
-    return grouped
+        route = f.get("remediation_route")
+        if route in grouped:
+            grouped[route].append(f)
+        else:
+            unknown.append(f)
+    return grouped, unknown
 
 
 def plan_remediation(report, run_id, golden_branch):
@@ -58,7 +68,7 @@ def plan_remediation(report, run_id, golden_branch):
     if report["verdict"] == "inconclusive":
         plan["skipped"] = True
         return plan
-    grouped = route_findings(report)
+    grouped, unknown = route_findings(report)
     fmt = dict(domain=domain, domain_role=DOMAIN_ROLES[domain],
                golden_sha=report["golden_sha"], golden_branch=golden_branch)
     for route, tpl in (("iac_pr", REMEDIATION_PROMPT_IAC),
@@ -79,6 +89,12 @@ def plan_remediation(report, run_id, golden_branch):
          "remediation_note": f.get("remediation_note"),
          "note": PROVIDER_API_NOTE}
         for f in grouped["provider_api"]
+    ] + [
+        {"field": f["field"], "provider": f["provider"],
+         "remediation_note": f.get("remediation_note"),
+         "note": f"unrecognized remediation_route "
+                 f"{f.get('remediation_route')!r}"}
+        for f in unknown
     ]
     return plan
 

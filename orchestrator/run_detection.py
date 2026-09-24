@@ -24,8 +24,6 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from drift.sources import DOMAINS
@@ -37,16 +35,29 @@ from orchestrator.schema import DETECTION_SCHEMA
 from store.golden_store import connect, get_golden, get_mapping
 
 
-def golden_info(db_path=None):
-    """golden_sha + mapping_version out of the golden store."""
+def golden_info(domains, db_path=None):
+    """({domain -> golden_sha}, mapping_version) out of the golden store.
+
+    golden_sha is per-domain — each domain's golden tree is a distinct row
+    with distinct content, and a finding must trace to the exact golden bytes
+    it was judged against. Fails loudly naming any requested domain with no
+    row, rather than auditing it against another domain's revision.
+    """
     conn = connect(db_path or config.GOLDEN_DB)
     try:
-        rec = get_golden(conn, DOMAINS[0])
-        if rec is None:
-            sys.exit(f"golden store is empty — run "
-                     f"scripts/load_golden_store.py first.")
+        shas = {}
+        missing = []
+        for d in domains:
+            rec = get_golden(conn, d)
+            if rec is None:
+                missing.append(d)
+            else:
+                shas[d] = rec.golden_sha
+        if missing:
+            sys.exit(f"golden store has no row for: {', '.join(missing)} "
+                     "— run scripts/load_golden_store.py first.")
         m = get_mapping(conn)
-        return rec.golden_sha, (m["version"] if m else "unknown")
+        return shas, (m["version"] if m else "unknown")
     finally:
         conn.close()
 
@@ -137,18 +148,20 @@ def main(argv=None):
 
     domains = args.domain or DOMAINS
     rid = config.run_id()
-    golden_sha, mapping_version = golden_info()
+    golden_shas, mapping_version = golden_info(domains)
     print(f"run {rid} — domains: {', '.join(domains)}")
-    print(f"golden_sha={golden_sha[:12]} mapping_version={mapping_version}")
+    for d in domains:
+        print(f"  {d}: golden_sha={golden_shas[d][:12]}")
+    print(f"mapping_version={mapping_version}")
 
     bundles = collect.collect_all(domains=domains,
                                   akamai_base=args.akamai_base,
                                   cloudflare_base=args.cloudflare_base)
-    manifest = collect.write_bundles(rid, bundles, golden_sha,
+    manifest = collect.write_bundles(rid, bundles, golden_shas,
                                      mapping_version, config.ARTIFACTS_DIR)
     manifest["sim_bases"] = {"akamai": args.akamai_base,
                              "cloudflare": args.cloudflare_base}
-    prompts = {d: render_prompt(d, golden_sha, mapping_version, manifest)
+    prompts = {d: render_prompt(d, golden_shas[d], mapping_version, manifest)
                for d in domains}
 
     if args.dry_run:

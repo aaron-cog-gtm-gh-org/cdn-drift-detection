@@ -57,21 +57,24 @@ def _dump(path, obj):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def write_bundles(run_id, bundles, golden_sha, mapping_version, outdir,
+def write_bundles(run_id, bundles, golden_shas, mapping_version, outdir,
                   attachment_urls=None):
-    """Write per-domain bundles + manifest; returns the manifest dict."""
+    """Write per-domain bundles + manifest; returns the manifest dict.
+
+    `golden_shas` maps domain -> sha256 of that domain's golden tree — the
+    provenance is per-domain because the content differs per domain.
+    """
     outdir = Path(outdir) / run_id
     outdir.mkdir(parents=True, exist_ok=True)
     attachment_urls = attachment_urls or {}
     manifest = {
         "run_id": run_id,
-        "golden_sha": golden_sha,
         "mapping_version": mapping_version,
         "sim_bases": None,
         "files": {},
     }
     for domain, bundle in bundles.items():
-        entry = {}
+        entry = {"golden_sha": golden_shas[domain]}
         for side in ("akamai", "cloudflare"):
             fname = f"{domain}.{side}.json"
             path = outdir / fname

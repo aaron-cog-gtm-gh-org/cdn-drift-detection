@@ -67,6 +67,14 @@ def test_inconclusive_domain_skipped():
     assert plan["sessions"] == []
 
 
+def test_unrecognized_route_deferred_not_crash():
+    r = report(findings=[finding("a", "iac_pr"), finding("b", "quantum")])
+    plan = remediate.plan_remediation(r, "r", "b")
+    assert {s["route"] for s in plan["sessions"]} == {"iac_pr"}
+    unknown = [d for d in plan["deferred"] if d["field"] == "b"]
+    assert unknown and "unrecognized remediation_route 'quantum'" in unknown[0]["note"]
+
+
 def test_findings_block_readable_not_json():
     block = remediate.findings_block([
         finding("tls.min_version", "iac_pr", note="set to 1.2")])

@@ -44,7 +44,7 @@ def test_create_session_request_shape():
     assert body["prompt"] == "PROMPT"
     assert body["tags"] == ["a", "b"]
     assert body["repos"] == ["org/repo"]
-    assert body["attachments"] == ["https://x/1"]
+    assert body["attachment_urls"] == ["https://x/1"]
     assert body["structured_output_schema"] == {"type": "object"}
     assert body["structured_output_required"] is True
     assert body["max_acu_limit"] == 10

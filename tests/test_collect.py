@@ -75,9 +75,10 @@ def test_write_bundles_stable_and_manifest(sims, tmp_path):
     ak, cf = sims
     src = ApiSource(f"http://127.0.0.1:{ak}", f"http://127.0.0.1:{cf}")
     bundles = collect.collect_all(source=src)
-    m1 = collect.write_bundles("run-1", bundles, "sha", "v",
+    shas = {d: f"sha-{d}" for d in DOMAINS}
+    m1 = collect.write_bundles("run-1", bundles, shas, "v",
                                tmp_path / "a")
-    m2 = collect.write_bundles("run-1", bundles, "sha", "v",
+    m2 = collect.write_bundles("run-1", bundles, shas, "v",
                                tmp_path / "b")
     for domain in DOMAINS:
         for side in ("akamai", "cloudflare"):
@@ -87,9 +88,10 @@ def test_write_bundles_stable_and_manifest(sims, tmp_path):
             expect = hashlib.sha256(pa.read_bytes()).hexdigest()
             assert m1["files"][domain][side]["sha256"] == expect
     manifest = json.loads((tmp_path / "a" / "run-1" / "manifest.json").read_text())
-    assert manifest["golden_sha"] == "sha"
     assert manifest["mapping_version"] == "v"
     assert len(manifest["files"]) == 4
+    for d in DOMAINS:  # per-domain provenance, not a single global sha
+        assert manifest["files"][d]["golden_sha"] == f"sha-{d}"
 
 
 def test_attachment_manifest_names_files(tmp_path):

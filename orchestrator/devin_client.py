@@ -7,6 +7,7 @@ It retries transient failures (429 and 5xx) with backoff and gives up fast on
 other 4xx — a bad request will not fix itself.
 """
 import time
+from pathlib import Path
 
 import httpx
 
@@ -46,8 +47,9 @@ class DevinClient:
     def upload_attachment(self, path):
         """Upload one file; returns the attachment URL for session create."""
         with open(path, "rb") as fh:
-            body = self._request("POST", self._org("/attachments"),
-                                 files={"file": fh})
+            body = self._request(
+                "POST", self._org("/attachments"),
+                files={"file": (Path(path).name, fh, "application/json")})
         return body["url"]
 
     def create_session(self, prompt, *, title=None, tags=None, repos=None,
@@ -70,7 +72,7 @@ class DevinClient:
         if repos:
             payload["repos"] = list(repos)
         if attachment_urls:
-            payload["attachments"] = list(attachment_urls)
+            payload["attachment_urls"] = list(attachment_urls)
         if structured_output_schema:
             payload["structured_output_schema"] = structured_output_schema
         if max_acu_limit is not None:
