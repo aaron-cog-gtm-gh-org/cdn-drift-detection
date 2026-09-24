@@ -202,7 +202,9 @@ def test_no_remediate_renders_phase9_without_sessions(tmp_path, monkeypatch):
     (tmp_path / "f.json").write_text("{}")
     manifest = {"files": {d: {
         s: {"path": str(tmp_path / "f.json"), "sha256": "s"}
-        for s in ("akamai", "cloudflare")}}}
+        for s in ("akamai", "cloudflare", "golden")}}}
+    monkeypatch.setattr(rd, "golden_bundles",
+                        lambda doms, db_path=None: {x: {} for x in doms})
 
     monkeypatch.setattr(rd, "golden_info",
                         lambda doms, db_path=None: ({x: "a" * 64 for x in doms}, "v"))
@@ -256,6 +258,77 @@ def test_no_remediate_renders_phase9_without_sessions(tmp_path, monkeypatch):
     text = buf.getvalue()
     assert "would route to a remediation session" in text
     assert len(created) == 1  # the detection session only — nothing else
+    assert created[0].get("repos") is None  # detection touches no repository
+
+
+def test_inconclusive_domain_exits_2(tmp_path, monkeypatch):
+    import json as _json
+    import orchestrator.run_detection as rd
+
+    d = "www.rbcdemo.ca"
+    report = dict(REPORT, verdict="inconclusive", findings=[],
+                  equivalent_but_different=[],
+                  notes="golden input missing — could not compare")
+    (tmp_path / "f.json").write_text("{}")
+    manifest = {"files": {d: {
+        s: {"path": str(tmp_path / "f.json"), "sha256": "s"}
+        for s in ("akamai", "cloudflare", "golden")}}}
+    monkeypatch.setattr(rd, "golden_bundles",
+                        lambda doms, db_path=None: {x: {} for x in doms})
+    monkeypatch.setattr(rd, "golden_info",
+                        lambda doms, db_path=None: ({x: "a" * 64 for x in doms}, "v"))
+    monkeypatch.setattr(rd.collect, "collect_akamai", lambda *a, **k: {})
+    monkeypatch.setattr(rd.collect, "collect_cloudflare", lambda *a, **k: {})
+
+    def _write_bundles(rid, b, shas, mv, adir):
+        run_dir = adir / rid
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            _json.dumps(manifest) + "\n")
+        return manifest
+
+    monkeypatch.setattr(rd.collect, "write_bundles", _write_bundles)
+    monkeypatch.setattr(rd, "render_prompt", lambda *a, **k: "prompt")
+    monkeypatch.setattr(rd.config, "get_token", lambda: "t")
+    monkeypatch.setattr(rd.config, "ARTIFACTS_DIR", tmp_path)
+    monkeypatch.setattr(rd, "validate_report", lambda d, r: [])
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def upload_attachment(self, path):
+            return "att-url"
+
+        def create_session(self, *a, **k):
+            return {"session_id": "sess-1"}
+
+        def poll_session(self, sid, **k):
+            return {"status": "exit", "structured_output": report}
+
+    monkeypatch.setattr(rd, "DevinClient", FakeClient)
+    monkeypatch.setattr(rd, "execute_remediation",
+                        lambda *a, **k: iter(()))
+    monkeypatch.setattr(rd, "plan_remediation",
+                        lambda *a, **k: {"domain": d, "deferred": [],
+                                         "skipped": True})
+    monkeypatch.setattr(rd, "make_reporter", lambda **k: _demo())
+
+    assert rd.main(["--no-remediate", "--plain", "--domain", d]) == 2
+
+
+def test_demo_inconclusive_renders_red_reason():
+    rep = dict(REPORT, verdict="inconclusive", findings=[],
+               notes="golden input missing")
+    r = _demo()
+    r.findings("www.rbcdemo.ca", rep)
+    r.summary("run", {"www.rbcdemo.ca": rep}, "/tmp")
+    text = r.console.file.getvalue()
+    assert "INCONCLUSIVE" in text and "golden input missing" in text
+    # plain carries it too
+    out = _plain_stdout(lambda p: (
+        p.findings("www.rbcdemo.ca", rep)))
+    assert "INCONCLUSIVE: golden input missing" in out
 
 
 def test_replay_missing_dir_exits():

@@ -97,7 +97,44 @@ def test_write_bundles_stable_and_manifest(sims, tmp_path):
 def test_attachment_manifest_names_files(tmp_path):
     manifest = {"files": {"www.rbcdemo.ca": {
         "akamai": {"path": "/x/www.rbcdemo.ca.akamai.json"},
-        "cloudflare": {"path": "/x/www.rbcdemo.ca.cloudflare.json"}}}}
+        "cloudflare": {"path": "/x/www.rbcdemo.ca.cloudflare.json"},
+        "golden": {"path": "/x/www.rbcdemo.ca.golden.json"}}}}
     text = collect.attachment_manifest("www.rbcdemo.ca", manifest)
     assert "www.rbcdemo.ca.akamai.json" in text
     assert "www.rbcdemo.ca.cloudflare.json" in text
+    assert "www.rbcdemo.ca.golden.json" in text
+
+
+def test_golden_bundle_contents():
+    from store.golden_store import GoldenRecord
+    rec = GoldenRecord(
+        domain="api.rbcdemo.ca", akamai_property_id="prp_1",
+        cloudflare_zone_id="z1", main_tf="resource {}",
+        rules_json='{"rules": []}', appsec_json='{"sec": true}',
+        golden_sha="abc123", mapping_version="v9", git_commit=None,
+        source_path="golden/api.rbcdemo.ca", updated_at="t")
+    mapping = {
+        "version": "v9",
+        "defaults": {"cloudflare_settings": {"http2": "on"}},
+        "value_tables": {"tls_min_version": {"akamai": {}}},
+        "fields": [
+            {"id": "tls.min_version"},                        # unscoped -> all
+            {"id": "only.api", "domains": ["api.rbcdemo.ca"]},
+            {"id": "only.www", "domains": ["www.rbcdemo.ca"]},
+        ],
+    }
+    b = collect.golden_bundle(rec, mapping)
+    assert b["domain"] == "api.rbcdemo.ca"
+    assert b["golden_sha"] == "abc123"
+    assert b["mapping_version"] == "v9"
+    assert b["files"]["main.tf"] == "resource {}"
+    assert b["files"]["rules/rules.json"] == {"rules": []}
+    assert b["files"]["appsec/security-config.json"] == {"sec": True}
+    ids = [f["id"] for f in b["mapping"]["fields"]]
+    assert ids == ["tls.min_version", "only.api"]  # domain-scoped
+    assert b["mapping"]["version"] == "v9"
+    assert "tls_min_version" in b["mapping"]["value_tables"]
+    # no appsec -> the file is omitted, not null
+    rec2 = GoldenRecord(**{**rec.__dict__, "appsec_json": None})
+    b2 = collect.golden_bundle(rec2, mapping)
+    assert "appsec/security-config.json" not in b2["files"]

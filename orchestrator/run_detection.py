@@ -26,6 +26,8 @@ import argparse
 import json
 import os
 import sys
+
+import yaml
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -65,6 +67,19 @@ def golden_info(domains, db_path=None):
                      "— run scripts/load_golden_store.py first.")
         m = get_mapping(conn)
         return shas, (m["version"] if m else "unknown")
+    finally:
+        conn.close()
+
+
+def golden_bundles(domains, db_path=None):
+    """{domain: golden attachment bundle} from the golden store — the same
+    rows `golden_info` reads, so both stay on one golden-resolution path."""
+    conn = connect(db_path or config.GOLDEN_DB)
+    try:
+        m = get_mapping(conn)
+        mapping_doc = yaml.safe_load(m["yaml_text"]) if m else {}
+        return {d: collect.golden_bundle(get_golden(conn, d), mapping_doc)
+                for d in domains}
     finally:
         conn.close()
 
@@ -184,9 +199,13 @@ def main(argv=None):
             source, d, lambda p, k, dom, u: cf_rows.append((dom, k, u)))
     out.fetch_table(cf_rows)
 
-    # [4/9] write bundles
+    # [4/9] write bundles — the golden attachment joins the two provider
+    # bundles so detection sessions need no repository at all
     out.phase(4, total, "Writing provider bundles",
               subtitle=str(config.ARTIFACTS_DIR / rid))
+    gbundles = golden_bundles(domains)
+    for d in domains:
+        bundles[d]["golden"] = gbundles[d]
     manifest = collect.write_bundles(rid, bundles, golden_shas,
                                      mapping_version, config.ARTIFACTS_DIR)
     manifest["sim_bases"] = {"akamai": args.akamai_base,
@@ -196,7 +215,7 @@ def main(argv=None):
          manifest["files"][d][side]["path"],
          manifest["files"][d][side]["sha256"],
          os.path.getsize(manifest["files"][d][side]["path"]))
-        for d in domains for side in ("akamai", "cloudflare")])
+        for d in domains for side in ("akamai", "cloudflare", "golden")])
     prompts = {d: render_prompt(d, golden_shas[d], mapping_version, manifest)
                for d in domains}
 
@@ -218,14 +237,14 @@ def main(argv=None):
     urls = {}
     for d in domains:
         urls[d] = []
-        for side in ("akamai", "cloudflare"):
+        for side in ("akamai", "cloudflare", "golden"):
             path = manifest["files"][d][side]["path"]
             urls[d].append(client.upload_attachment(path))
             out.artifact(f"{Path(path).name} →", urls[d][-1])
     manifest_path = config.ARTIFACTS_DIR / rid / "manifest.json"
     m = json.loads(manifest_path.read_text())
     for d in domains:
-        for i, side in enumerate(("akamai", "cloudflare")):
+        for i, side in enumerate(("akamai", "cloudflare", "golden")):
             m["files"][d][side]["attachment_url"] = urls[d][i]
     manifest_path.write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
 
@@ -236,7 +255,7 @@ def main(argv=None):
         body = client.create_session(
             prompts[d], title=f"CDN drift detection: {d}",
             tags=["cdn-drift", "detection", f"domain:{d}", f"run:{rid}"],
-            repos=[config.REPO_SLUG], attachment_urls=urls[d],
+            attachment_urls=urls[d],
             structured_output_schema=DETECTION_SCHEMA,
             structured_output_required=True,
             max_acu_limit=args.max_acu, devin_mode=args.devin_mode)
@@ -305,7 +324,11 @@ def main(argv=None):
                 out.warn(f"  remediation skipped for {plan['domain']}: "
                          f"verdict inconclusive")
     out.summary(rid, reports, str(config.ARTIFACTS_DIR / rid))
-    return 1 if bad else 0
+    if bad:
+        return 1
+    if any(r["verdict"] == "inconclusive" for r in reports.values()):
+        return 2  # a session could not complete its comparison
+    return 0
 
 
 def _render_would_route(reports, out):

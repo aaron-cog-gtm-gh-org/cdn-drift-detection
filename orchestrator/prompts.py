@@ -7,27 +7,27 @@ and easy to lose when editing:
 1. The session must compare semantically, not textually. A CDN estate
    mid-migration is *full* of representations that differ and mean the same
    thing; a tool that reports those as drift is noise and gets switched off.
-2. The session must not shortcut. This repo contains a validator that already
-   knows the answer, so the prompt forbids running it -- otherwise the session
-   reproduces our expected output instead of independently deriving it, and the
-   POC proves nothing.
+2. The session must not shortcut. Detection sessions get every input as
+   attachments and no repository at all, so there is no validator output to
+   reproduce -- the findings are derived from the configurations themselves
+   or the POC proves nothing.
 """
 
 DETECTION_PROMPT = """\
 You are auditing CDN configuration drift for a Canadian retail bank, on one \
 domain: {domain} ({domain_role}).
 
-The golden configuration is the source of truth. It is Terraform plus the \
-Akamai rule tree and App Sec documents it references, checked into the repo \
-you have. Start by running `git checkout {golden_branch}` in the repo -- the \
-golden configs are on that branch, not on the default branch -- then read \
-`golden/{domain}/`. That tree is golden_sha `{golden_sha}`. The field mapping \
-is `mapping/akamai-cloudflare-mapping.yaml`, version `{mapping_version}`: it \
-lists each field that matters, where it lives in each provider, how to compare \
-it (the comparator), and its severity.
+The golden configuration is the source of truth: Terraform plus the Akamai \
+rule tree and App Sec documents it references. It is attached, at golden_sha \
+`{golden_sha}` -- main.tf as text, the parsed rule tree and App Sec config, \
+and the field mapping (version `{mapping_version}`) scoped to this domain: \
+each field that matters, where it lives in each provider, how to compare it \
+(the comparator), and its severity.
 
-The live provider configuration is attached, pulled from the provider APIs \
-just now:
+Everything you need is attached below. Do NOT clone or check out any \
+repository -- there is none on this machine, and none is needed. The live \
+provider configuration is attached too, pulled from the provider APIs just \
+now:
 
 {attachment_manifest}
 
@@ -80,11 +80,9 @@ Escalating is a legitimate outcome; guessing is not.
 
 Constraints:
 
-- Do NOT run `scripts/validate_fixtures.py`, and do not read \
-`docs/drift-scenarios.md`. Both encode the expected answer for this fixture \
-set. Reading them invalidates the exercise -- the point is that you derive the \
-findings from the configurations themselves. Everything else in the repo is \
-fair game, and the mapping in particular is meant to be read closely.
+- Derive the findings from the attached configurations themselves -- they \
+are all the evidence there is. The point of this exercise is an independent \
+judgement on the configurations, not a lookup of anyone else's answer.
 - Do not modify any provider configuration, and do not open a pull request. \
 This session only reports. Remediation happens in a separate session.
 - Read the attached provider documents in full before concluding. They are \

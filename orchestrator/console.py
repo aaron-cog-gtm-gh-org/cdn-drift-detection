@@ -77,6 +77,8 @@ class PlainReporter:
         for f in report["findings"]:
             print(f"  {f['severity']:9s} {f['provider']:10s} {f['field']:36s} "
                   f"{f['equivalence']:22s} -> {f['remediation_route']}")
+        if report["verdict"] == "inconclusive":
+            print(f"  INCONCLUSIVE: {report.get('notes', '')}")
 
     def equivalences(self, domain, report, full=False):
         for e in report.get("equivalent_but_different", []):
@@ -89,7 +91,11 @@ class PlainReporter:
         print(f"  deferred ({note}): {domain} {field}")
 
     def summary(self, run_id, reports, artifacts_dir):
-        pass
+        inc = [d for d, r in reports.items()
+               if r["verdict"] == "inconclusive"]
+        if inc:
+            print(f"  INCONCLUSIVE: {len(inc)} domain(s) could not be "
+                  f"compared: {', '.join(inc)}", file=sys.stderr)
 
     def warn(self, text):
         print(text, file=sys.stderr)
@@ -253,7 +259,7 @@ class DemoReporter:
     # -- reports ----------------------------------------------------------------
 
     VERDICT_STYLE = {"drift_detected": "bold red", "in_sync": "bold green",
-                     "inconclusive": "bold yellow"}
+                     "inconclusive": "bold red"}
 
     def findings(self, domain, report):
         from rich.rule import Rule
@@ -267,6 +273,10 @@ class DemoReporter:
                  f"[dim]({s['findings_total']} findings, "
                  f"{s['fields_compared']} fields compared)[/]",
                  style="dim", align="left"))
+        if verdict == "inconclusive":
+            self.console.print(
+                f"  [bold red]INCONCLUSIVE[/] "
+                f"[red]{report.get('notes', '')}[/]")
         if not report["findings"]:
             return
         t = Table(show_lines=False, pad_edge=True)
@@ -327,6 +337,12 @@ class DemoReporter:
             for sev, n in (rep["summary"].get("by_severity") or {}).items():
                 sev_totals[sev] = sev_totals.get(sev, 0) + n
         self.console.print(t)
+        inc = [d for d, r in reports.items()
+               if r["verdict"] == "inconclusive"]
+        if inc:
+            self.console.print(
+                f"  [bold red]{len(inc)} domain(s) INCONCLUSIVE[/] "
+                f"[red]({', '.join(inc)}) — comparison did not complete[/]")
         if sev_totals:
             line = "  ".join(
                 f"[{SEVERITY_STYLE.get(s, 'white')}]{s}: {n}[/]"

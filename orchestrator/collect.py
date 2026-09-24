@@ -70,8 +70,41 @@ def collect_all(source=None, domains=None, akamai_base=None,
     return {d: collect_domain(source, d, on_fetch) for d in domains}
 
 
-def _dump(path, obj):
-    text = json.dumps(obj, indent=2, sort_keys=True) + "\n"
+def golden_bundle(record, mapping_doc):
+    """The third per-domain artifact: everything a detection session needs
+    to judge, sourced from the same golden store row `golden_info` reads —
+    no repository involved.
+
+    `record` is a `store.golden_store.GoldenRecord` (main.tf text, parsed
+    rules/appsec JSON, golden_sha, mapping_version). `mapping_doc` is the
+    parsed mapping YAML; only the fields scoped to this domain are carried
+    (a field with no `domains:` list applies to every domain).
+    """
+    d = record.domain
+    files = {
+        "main.tf": record.main_tf,
+        "rules/rules.json": json.loads(record.rules_json),
+    }
+    if record.appsec_json:
+        files["appsec/security-config.json"] = json.loads(record.appsec_json)
+    scoped = [f for f in mapping_doc.get("fields", [])
+              if f.get("domains") is None or d in f["domains"]]
+    return {
+        "domain": d,
+        "golden_sha": record.golden_sha,
+        "mapping_version": record.mapping_version,
+        "files": files,
+        "mapping": {
+            "version": mapping_doc.get("version"),
+            "defaults": mapping_doc.get("defaults", {}),
+            "value_tables": mapping_doc.get("value_tables", {}),
+            "fields": scoped,
+        },
+    }
+
+
+def _dump(path, obj, sort_keys=True):
+    text = json.dumps(obj, indent=2, sort_keys=sort_keys) + "\n"
     Path(path).write_text(text)
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -94,12 +127,18 @@ def write_bundles(run_id, bundles, golden_shas, mapping_version, outdir,
     }
     for domain, bundle in bundles.items():
         entry = {"golden_sha": golden_shas[domain]}
-        for side in ("akamai", "cloudflare"):
+        for side in ("akamai", "cloudflare", "golden"):
+            if side not in bundle:
+                continue
             fname = f"{domain}.{side}.json"
             path = outdir / fname
             entry[side] = {
                 "path": str(path),
-                "sha256": _dump(path, bundle[side]),
+                # the parsed mapping carries YAML-bool keys (on/off) that
+                # sort_keys cannot order against strings; insertion order
+                # is deterministic either way
+                "sha256": _dump(path, bundle[side],
+                                sort_keys=(side != "golden")),
                 "attachment_url": attachment_urls.get(fname),
             }
         manifest["files"][domain] = entry
@@ -119,4 +158,7 @@ def attachment_manifest(domain, manifest):
         f"- `{Path(entry['cloudflare']['path']).name}` — the domain's live "
         "Cloudflare state: zone settings, every ruleset in full, and DNS "
         "records for the zone.",
+        f"- `{Path(entry['golden']['path']).name}` — the intended state this "
+        "domain is judged against: golden_sha, main.tf, the golden rule tree "
+        "and App Sec config, and the field mapping scoped to this domain.",
     ])
