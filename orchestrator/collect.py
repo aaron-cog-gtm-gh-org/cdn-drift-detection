@@ -109,6 +109,9 @@ def golden_bundle(record, mapping_doc):
                 k: v for k, v in
                 mapping_doc.get("comparator_definitions", {}).items()
                 if k in {f.get("comparator") for f in scoped}},
+            # every key's meaning, shipped whole — bare data is how the
+            # http2-as-drift misreading happened
+            "key_definitions": mapping_doc.get("key_definitions", {}),
             "fields": scoped,
         },
     }

@@ -13,7 +13,7 @@
 # finding (route: human), not drift and not a validation error.
 # `unsupported: true` means the provider cannot express the field — the field
 # can only ever produce a migration gap, never drift.
-version: "2026.09.2"
+version: "2026.09.3"
 rule_format: "v2023-01-05"
 
 # Provider defaults applied when the other side omits the field entirely.
@@ -100,6 +100,56 @@ comparator_definitions:
     Expressions are normalized (whitespace and quotes stripped, lowercased)
     and compared as sorted sets -- syntactic differences between the two
     providers' expression languages are not drift.
+
+key_definitions:
+  defaults: >-
+    Provider-stock values applied only for Cloudflare zone settings: when a
+    field's cloudflare path resolves to nothing and the setting id named in
+    the path appears in defaults.cloudflare_settings, the listed value is the
+    provider's documented stock behaviour. Compare it exactly as if it were
+    present -- the absence is not drift and not a migration gap.
+  domains: >-
+    The domains this field applies to. A field with no domains: list applies
+    to every domain.
+  golden: >-
+    How the intended value is specified: `path` resolves a jsonpath in the
+    named golden `fixture` (rules or appsec) against the attached golden
+    document, `literal` is the intended value directly, and `values` is a
+    per-domain map of intended values.
+  fixture: >-
+    Names which attached document a side's `path` resolves against -- akamai:
+    rules, hostnames, appsec; cloudflare: settings, rulesets, dns_records,
+    zone; golden: rules, appsec.
+  value_table: >-
+    Names a table in `value_tables` translating each provider's vocabulary to
+    a canonical value before comparison -- different tokens for the same
+    meaning are not drift.
+  value_translate: >-
+    Literal substitutions applied to a resolved value before comparison,
+    e.g. rendering a symbolic token into this domain's hostname.
+  extract: >-
+    A regex applied to each resolved value whose capture group replaces the
+    value before comparison.
+  extract_all: >-
+    Splits a resolved string into every regex match before comparison.
+  strip_prefix: >-
+    Removes the named leading prefix from a resolved string value before
+    comparison.
+  split: >-
+    Splits a resolved string on the separator into separate values before
+    comparison.
+  empty_means: >-
+    Annotation naming the token this provider uses to represent an empty
+    set (e.g. "[]") when the control is present but configures nothing.
+  normalize: >-
+    Annotation of the normalization applied to both sides before comparison
+    (e.g. strip whitespace and quotes, lowercase).
+  note: >-
+    Free-text annotation about where an equivalent control lives or why a
+    provider side is absent. Informational context, not a comparison rule.
+  rule_format: >-
+    The Akamai rule-tree format version this estate's exports use; version
+    metadata only.
 
 fields:
   # ---------- TLS and certificates ----------
