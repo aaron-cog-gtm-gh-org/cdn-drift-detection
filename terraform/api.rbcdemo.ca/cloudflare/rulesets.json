@@ -196,7 +196,7 @@
           "headers": {
             "Access-Control-Allow-Origin": {
               "operation": "set",
-              "value": "https://online.rbcdemo.ca, https://www.rbcdemo.ca, https://partners.rbcdemo.ca"
+              "value": "https://online.rbcdemo.ca, https://www.rbcdemo.ca"
             },
             "Access-Control-Allow-Credentials": {
               "operation": "set",
