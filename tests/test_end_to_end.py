@@ -309,3 +309,121 @@ def test_answers_file_missing_domain_warns_and_falls_through(
     out = buf.getvalue() + err.getvalue()
     assert "--answers has no entry for api.rbcdemo.ca" in out
     assert "ratelimit.partner_api" in out  # the asked fields are named
+
+
+# ---------------- the split-question regression ---------------------------
+#
+# Third live run: sessions split the question across several messages —
+# findings in one, the bare "reply in the form ..." instruction in another.
+# The relay used to render only the last Devin message.
+
+from orchestrator.run_detection import OperatorRelay, latest_question
+
+
+def _m(source, message):
+    return {"source": source, "message": message}
+
+
+def test_latest_question_aggregates_the_devin_run():
+    msgs = [_m("devin", "1. tls.min_version: akamai=TLSV1_2 cf=1.0\n"
+                        "2. waf: on vs off"),
+            _m("devin", "I'm waiting for your decision on the 2 findings "
+                        "above. Reply `1: cloudflare, 2: akamai`.")]
+    q = latest_question(msgs)
+    assert "tls.min_version" in q and "Reply" in q
+    assert q.index("tls.min_version") < q.index("Reply")  # order preserved
+
+
+def test_latest_question_stops_at_operator_boundary():
+    """Second episode: operator answered, then two new Devin messages —
+    only the newest run is the question."""
+    msgs = [_m("devin", "old question"), _m("user", "1: akamai"),
+            _m("devin", "new findings"), _m("devin", "new instruction")]
+    q = latest_question(msgs)
+    assert "new findings" in q and "new instruction" in q
+    assert "old question" not in q and "akamai" not in q
+
+
+def test_latest_question_non_user_source_is_also_a_boundary():
+    """Any non-devin source — tool, system — ends the run, same as an
+    operator reply (documented in the helper's docstring)."""
+    msgs = [_m("devin", "older"), _m("system", "checkpoint"),
+            _m("devin", "newer")]
+    assert latest_question(msgs) == "newer"
+
+
+def test_latest_question_single_message_unchanged():
+    assert latest_question([_m("devin", "the question")]) == "the question"
+    assert latest_question([_m("user", "hi")]) == ""
+
+
+class _RefetchClient:
+    """list_messages returns nothing until the re-fetch."""
+
+    def __init__(self, msgs_on_first=(), msgs_on_retry=()):
+        self.calls = 0
+        self.first = list(msgs_on_first)
+        self.retry = list(msgs_on_retry)
+        self.sent = []
+
+    def list_messages(self, sid):
+        self.calls += 1
+        return self.first if self.calls == 1 else self.retry
+
+    def get_session(self, sid):
+        return {"status": "running", "status_detail": "waiting_for_user"}
+
+    def send_message(self, sid, message):
+        self.sent.append(message)
+
+
+class _Out:
+    def __init__(self):
+        self.questions, self.warns, self.prompts = [], [], []
+
+    def waiting_for_decision(self, domain, url, question):
+        self.questions.append((domain, url, question))
+
+    def warn(self, text):
+        self.warns.append(text)
+
+    def decision_prompt(self, domain):
+        self.prompts.append(domain)
+
+    def decision_sent(self, domain, answer):
+        pass
+
+    def decision_external(self, domain, url):
+        pass
+
+
+def test_relay_empty_question_refetches_once_then_falls_back(tmp_path):
+    import orchestrator.run_detection as rd
+    client = _RefetchClient()  # nothing on either fetch
+    out = _Out()
+    relay = OperatorRelay(client, out, log_dir=tmp_path, recheck_interval=0,
+                          stdin_line=lambda timeout: "")
+    relay.relay("www.rbcdemo.ca", "s1", {"url": "https://x/s1"})
+    assert client.calls == 2                        # one re-fetch attempted
+    assert any("no question text" in w for w in out.warns)
+    assert "https://x/s1" in out.questions[0][2]    # fallback points at URL
+    entries = [json.loads(l) for l in
+               (tmp_path / "www.rbcdemo.ca.messages.jsonl")
+               .read_text().splitlines()]
+    assert "unavailable" in entries[0]["message"]
+
+
+def test_relay_aggregated_question_is_printed_and_logged(tmp_path):
+    client = _RefetchClient(
+        msgs_on_first=[_m("devin", "finding 1"), _m("devin", "reply form")])
+    out = _Out()
+    relay = OperatorRelay(client, out, log_dir=tmp_path, recheck_interval=0,
+                          stdin_line=lambda timeout: "")
+    relay.relay("www.rbcdemo.ca", "s1", {"url": "https://x/s1"})
+    domain, url, question = out.questions[0]
+    assert "finding 1" in question and "reply form" in question
+    entries = [json.loads(l) for l in
+               (tmp_path / "www.rbcdemo.ca.messages.jsonl")
+               .read_text().splitlines()]
+    assert "finding 1" in entries[0]["message"]
+    assert "reply form" in entries[0]["message"]  # full text in transcript

@@ -37,6 +37,7 @@ import os
 import re
 import sys
 import threading
+import time
 
 import yaml
 from concurrent.futures import ThreadPoolExecutor
@@ -123,6 +124,25 @@ def _stdin_line(timeout):
     return sys.stdin.readline()
 
 
+def latest_question(msgs):
+    """Every Devin message since the operator last spoke, oldest first.
+
+    A session may split one question across several messages (findings in
+    one, the 'reply in the form ...' instruction in another), so the last
+    message alone is not the question. ANY non-"devin" source — an
+    operator reply, a tool/system event — is a boundary: that's what makes
+    a second waiting episode show only the new question and not the whole
+    history.
+    """
+    tail = []
+    for m in reversed(msgs):
+        if m.get("source") == "devin":
+            tail.append(m.get("message") or "")
+        else:
+            break                      # a non-devin message ends the run
+    return "\n\n".join(reversed(tail)).strip()
+
+
 class OperatorRelay:
     """Serializes 'session is waiting for the operator' episodes.
 
@@ -160,8 +180,19 @@ class OperatorRelay:
     def relay(self, domain, session_id, body):
         url = body.get("url") or config.session_url(session_id)
         msgs = self.client.list_messages(session_id)
-        question = next((m.get("message", "") for m in reversed(msgs)
-                         if m.get("source") == "devin"), "")
+        question = latest_question(msgs)
+        if not question:
+            # the waiting status can beat the question message landing —
+            # re-fetch once before giving up on the transcript
+            time.sleep(self.recheck_interval)
+            msgs = self.client.list_messages(session_id)
+            question = latest_question(msgs)
+        if not question:
+            self.out.warn(
+                f"{domain}: the session is waiting but no question text was "
+                f"retrievable — read it at {url}")
+            question = (f"(question text unavailable — the session is "
+                        f"waiting on you; read it at {url})")
         self.out.waiting_for_decision(domain, url, question)
         self._log(domain, {"from": "devin", "message": question})
         if domain in self.answers:
