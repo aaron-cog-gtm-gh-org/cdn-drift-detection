@@ -386,3 +386,55 @@ def test_exit_while_waiting_is_still_not_terminal():
     assert DevinClient._terminal(
         {"status": "exit", "status_detail": "finished"})
     assert DevinClient._terminal({"status": "error"})
+
+
+def _waiting_body(so):
+    return {"status": "running", "status_detail": "waiting_for_user",
+            "structured_output": so}
+
+
+def test_complete_report_while_waiting_terminates_immediately():
+    """Second live failure: a session that opened its PR and published the
+    complete report then sits in waiting_for_user telling the operator
+    it's done — a completion message is not a question. done_when outranks
+    the waiting status: return immediately, never fire on_waiting."""
+    fired = []
+    out = _client_for([_waiting_body(dict(FINAL))]) \
+        .poll_session("s1", interval=0,
+                      on_waiting=lambda b: fired.append(b),
+                      done_when=lambda b: report_complete(b, False))
+    assert fired == []
+    assert out["structured_output"]["remediation"]["pull_request_url"]
+
+
+def test_complete_report_while_suspended_terminates_immediately():
+    fired = []
+    out = _client_for([{"status": "suspended",
+                        "status_detail": "inactivity",
+                        "structured_output": dict(FINAL)}]) \
+        .poll_session("s1", interval=0,
+                      on_waiting=lambda b: fired.append(b),
+                      done_when=lambda b: report_complete(b, False))
+    assert fired == []
+    assert out["structured_output"]["remediation"]["pull_request_url"]
+
+
+def test_report_only_report_while_waiting_terminates():
+    """--report-only: any report is the whole job, even while waiting."""
+    out = _client_for([_waiting_body(dict(PARTIAL))]) \
+        .poll_session("s1", interval=0,
+                      done_when=lambda b: report_complete(b, True))
+    assert out["structured_output"]["findings"]
+
+
+def test_all_unresolved_report_while_waiting_terminates():
+    """A complete report is every finding consciously left alone too."""
+    rep = {"findings": [{"field": "f"}], "remediation":
+           {"unresolved": [{"field": "f", "reason": "not expressible"}]}}
+    fired = []
+    out = _client_for([_waiting_body(rep)]) \
+        .poll_session("s1", interval=0,
+                      on_waiting=lambda b: fired.append(b),
+                      done_when=lambda b: report_complete(b, False))
+    assert fired == []
+    assert out["structured_output"]["remediation"]["unresolved"]
