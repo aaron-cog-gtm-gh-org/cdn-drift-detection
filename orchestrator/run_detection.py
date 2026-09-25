@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from drift.iac import iac_sha
 from drift.sources import ApiSource, DOMAINS
 from orchestrator import collect, config
 from orchestrator.console import make_reporter
@@ -41,47 +42,41 @@ from orchestrator.prompts import DETECTION_PROMPT, DOMAIN_ROLES
 from orchestrator.remediate import (execute_remediation, plan_remediation,
                                     route_findings)
 from orchestrator.schema import DETECTION_SCHEMA
-from store.golden_store import connect, get_golden, get_mapping
+
+MAPPING_PATH = Path(__file__).resolve().parent.parent / "mapping" / "akamai-cloudflare-mapping.yaml"
 
 
-def golden_info(domains, db_path=None):
-    """({domain -> golden_sha}, mapping_version) out of the golden store.
+def _mapping_doc():
+    return yaml.safe_load(MAPPING_PATH.read_text())
 
-    golden_sha is per-domain — each domain's golden tree is a distinct row
-    with distinct content, and a finding must trace to the exact golden bytes
-    it was judged against. Fails loudly naming any requested domain with no
-    row, rather than auditing it against another domain's revision.
+
+def golden_info(domains, root=None):
+    """({domain -> golden_sha}, mapping_version) out of the IaC tree.
+
+    golden_sha is per-domain — each domain's terraform module is distinct
+    content, and a finding must trace to the exact IaC bytes it was judged
+    against. Fails loudly naming any requested domain with no module, rather
+    than auditing it against another domain's revision.
     """
-    conn = connect(db_path or config.GOLDEN_DB)
-    try:
-        shas = {}
-        missing = []
-        for d in domains:
-            rec = get_golden(conn, d)
-            if rec is None:
-                missing.append(d)
-            else:
-                shas[d] = rec.golden_sha
-        if missing:
-            sys.exit(f"golden store has no row for: {', '.join(missing)} "
-                     "— run scripts/load_golden_store.py first.")
-        m = get_mapping(conn)
-        return shas, (m["version"] if m else "unknown")
-    finally:
-        conn.close()
+    base = Path(root) if root is not None else config.IAC_DIR
+    shas, missing = {}, []
+    for d in domains:
+        if not (base / d).is_dir():
+            missing.append(d)
+        else:
+            shas[d] = iac_sha(d, base)
+    if missing:
+        sys.exit(f"no IaC module under terraform/ for: {', '.join(missing)}")
+    return shas, (_mapping_doc().get("version") or "unknown")
 
 
-def golden_bundles(domains, db_path=None):
-    """{domain: golden attachment bundle} from the golden store — the same
-    rows `golden_info` reads, so both stay on one golden-resolution path."""
-    conn = connect(db_path or config.GOLDEN_DB)
-    try:
-        m = get_mapping(conn)
-        mapping_doc = yaml.safe_load(m["yaml_text"]) if m else {}
-        return {d: collect.golden_bundle(get_golden(conn, d), mapping_doc)
-                for d in domains}
-    finally:
-        conn.close()
+def golden_bundles(domains, root=None):
+    """{domain: golden attachment bundle} from the IaC tree — the same
+    modules `golden_info` reads, so both stay on one IaC-resolution path."""
+    mapping_doc = _mapping_doc()
+    base = Path(root) if root is not None else config.IAC_DIR
+    return {d: collect.golden_bundle(d, mapping_doc, root=base)
+            for d in domains}
 
 
 def render_prompt(domain, golden_sha, mapping_version, manifest):

@@ -22,7 +22,7 @@ SIM_CLOUDFLARE_BASE = "http://127.0.0.1:8082"
 # --- what the detection sessions are pointed at ---
 REPO_SLUG = "aaron-cog-gtm-gh-org/cdn-drift-detection"
 GOLDEN_BRANCH = "devin/1790214592-cdn-drift-fixtures"
-GOLDEN_DB = REPO / "store" / "golden.db"
+IAC_DIR = REPO / "terraform"
 
 # --- session defaults ---
 POLL_INTERVAL_S = 20

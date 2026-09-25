@@ -70,29 +70,30 @@ def collect_all(source=None, domains=None, akamai_base=None,
     return {d: collect_domain(source, d, on_fetch) for d in domains}
 
 
-def golden_bundle(record, mapping_doc):
+def golden_bundle(domain, mapping_doc, root=None):
     """The third per-domain artifact: everything a detection session needs
-    to judge, sourced from the same golden store row `golden_info` reads —
-    no repository involved.
+    to judge, sourced from the same IaC tree `golden_info` reads — the
+    terraform/<domain> module in full.
 
-    `record` is a `store.golden_store.GoldenRecord` (main.tf text, parsed
-    rules/appsec JSON, golden_sha, mapping_version). `mapping_doc` is the
-    parsed mapping YAML; only the fields scoped to this domain are carried
-    (a field with no `domains:` list applies to every domain).
+    `mapping_doc` is the parsed mapping YAML; only the fields scoped to this
+    domain are carried (a field with no `domains:` list applies to every
+    domain).
     """
-    d = record.domain
-    files = {
-        "main.tf": record.main_tf,
-        "rules/rules.json": json.loads(record.rules_json),
-    }
-    if record.appsec_json:
-        files["appsec/security-config.json"] = json.loads(record.appsec_json)
+    from drift.iac import iac_root, iac_sha
+    d = domain
+    files = {}
+    for p in sorted(iac_root(root).joinpath(d).rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(iac_root(root) / d).as_posix()
+        files[rel] = json.loads(p.read_text()) if p.suffix == ".json" \
+            else p.read_text()
     scoped = [f for f in mapping_doc.get("fields", [])
               if f.get("domains") is None or d in f["domains"]]
     return {
         "domain": d,
-        "golden_sha": record.golden_sha,
-        "mapping_version": record.mapping_version,
+        "golden_sha": iac_sha(d, root),
+        "mapping_version": mapping_doc.get("version"),
         "files": files,
         "mapping": {
             "version": mapping_doc.get("version"),

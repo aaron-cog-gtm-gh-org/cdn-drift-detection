@@ -195,8 +195,6 @@ def main():
     ap.add_argument("--source", choices=["disk", "api"], default="disk")
     ap.add_argument("--akamai-base", default="http://127.0.0.1:8081")
     ap.add_argument("--cloudflare-base", default="http://127.0.0.1:8082")
-    ap.add_argument("--golden", choices=["files", "store"], default="files")
-    ap.add_argument("--db", default=None)
     args = ap.parse_args()
 
     mapping = yaml.safe_load((REPO / "mapping" / "akamai-cloudflare-mapping.yaml").read_text())
@@ -223,26 +221,15 @@ def main():
             fixture_cache[key] = source.get(provider, fixture_name, domain)
         return fixture_cache[key]
 
-    # 2. golden source
+    # 2. golden source (the terraform/ IaC tree — Akamai-shaped docs)
     golden_cache = {}
-    store_conn = None
-    if args.golden == "store":
-        sys.path.insert(0, str(REPO))
-        from store.golden_store import DEFAULT_DB, connect
-        store_conn = connect(args.db or DEFAULT_DB)
 
     def golden_doc(domain, fixture_name):
-        rel = {"rules": "rules/rules.json",
-               "appsec": "appsec/security-config.json"}[fixture_name]
+        rel = {"rules": "akamai/rules.json",
+               "appsec": "akamai/appsec.json"}[fixture_name]
         key = (domain, fixture_name)
         if key not in golden_cache:
-            if store_conn is not None:
-                from store.golden_store import get_golden
-                rec = get_golden(store_conn, domain)
-                blob = rec.rules_json if fixture_name == "rules" else rec.appsec_json
-                golden_cache[key] = json.loads(blob)
-            else:
-                golden_cache[key] = load_json(REPO / "golden" / domain / rel)
+            golden_cache[key] = load_json(REPO / "terraform" / domain / rel)
         return golden_cache[key]
 
     findings = []

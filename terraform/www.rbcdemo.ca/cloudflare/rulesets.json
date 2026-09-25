@@ -1,0 +1,200 @@
+[
+  {
+    "name": "Cloudflare Managed + OWASP",
+    "kind": "zone",
+    "phase": "http_request_firewall_managed",
+    "rules": [
+      {
+        "description": "Execute Cloudflare Managed Ruleset",
+        "action": "execute",
+        "enabled": false,
+        "expression": "true",
+        "action_parameters": {
+          "overrides": {
+            "categories": [
+              {
+                "category": "wordpress",
+                "action": "log",
+                "enabled": true
+              },
+              {
+                "category": "joomla",
+                "action": "log",
+                "enabled": true
+              }
+            ],
+            "rules": [
+              {
+                "action": "log",
+                "enabled": true
+              }
+            ]
+          }
+        }
+      },
+      {
+        "description": "Execute OWASP Core Ruleset",
+        "action": "execute",
+        "enabled": true,
+        "expression": "true",
+        "action_parameters": {
+          "overrides": {
+            "sensitivity_level": "medium"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Custom firewall",
+    "kind": "zone",
+    "phase": "http_request_firewall_custom",
+    "rules": [
+      {
+        "description": "Geo deny \u2014 sanctioned countries",
+        "action": "block",
+        "enabled": true,
+        "expression": "(ip.geoip.country in {\"KP\" \"IR\" \"CU\" \"SY\"})"
+      },
+      {
+        "description": "Known-bad ASN block",
+        "action": "block",
+        "enabled": true,
+        "expression": "(ip.geoip.asnum in {9009 43350 202425})"
+      }
+    ]
+  },
+  {
+    "name": "Rate limits",
+    "kind": "zone",
+    "phase": "http_ratelimit",
+    "rules": [
+      {
+        "description": "Login rate limit",
+        "action": "block",
+        "enabled": true,
+        "expression": "(http.request.uri.path eq \"/auth/login\" and http.request.method eq \"POST\")",
+        "ratelimit": {
+          "characteristics": [
+            "ip.src",
+            "cf.colo.id"
+          ],
+          "period": 60,
+          "requests_per_period": 30,
+          "mitigation_timeout": 300
+        }
+      }
+    ]
+  },
+  {
+    "name": "Cache settings",
+    "kind": "zone",
+    "phase": "http_request_cache_settings",
+    "rules": [
+      {
+        "description": "Static cache TTL",
+        "action": "set_cache_settings",
+        "enabled": true,
+        "expression": "(http.request.uri.path.extension in {\"css\" \"js\" \"woff2\"})",
+        "action_parameters": {
+          "cache": true,
+          "edge_ttl": {
+            "mode": "override_origin",
+            "default": 604800
+          },
+          "browser_ttl": {
+            "mode": "respect_origin"
+          },
+          "cache_key": {
+            "custom_key": {
+              "query_string": {
+                "include": [
+                  "*"
+                ]
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Request transforms",
+    "kind": "zone",
+    "phase": "http_request_transform",
+    "rules": [
+      {
+        "description": "Strip tracking params",
+        "action": "rewrite",
+        "enabled": true,
+        "expression": "true",
+        "action_parameters": {
+          "uri": {
+            "query": {
+              "expression": "http.request.uri.query & !contains(http.request.uri.query, \"utm_\")"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Response header transforms",
+    "kind": "zone",
+    "phase": "http_response_headers_transform",
+    "rules": [
+      {
+        "description": "HSTS",
+        "action": "rewrite",
+        "enabled": true,
+        "expression": "true",
+        "action_parameters": {
+          "headers": {
+            "Strict-Transport-Security": {
+              "operation": "set",
+              "value": "max-age=31536000; includeSubDomains"
+            }
+          }
+        }
+      },
+      {
+        "description": "security-headers",
+        "action": "rewrite",
+        "enabled": true,
+        "expression": "true",
+        "action_parameters": {
+          "headers": {
+            "X-Content-Type-Options": {
+              "operation": "set",
+              "value": "nosniff"
+            },
+            "X-Frame-Options": {
+              "operation": "set",
+              "value": "DENY"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Origin routing",
+    "kind": "zone",
+    "phase": "http_request_origin",
+    "rules": [
+      {
+        "description": "Route to origin pool",
+        "action": "route",
+        "enabled": true,
+        "expression": "true",
+        "action_parameters": {
+          "origin": {
+            "host": "origin-www.rbcdemo.ca",
+            "port": 443
+          },
+          "host_header": "www.rbcdemo.ca"
+        }
+      }
+    ]
+  }
+]
