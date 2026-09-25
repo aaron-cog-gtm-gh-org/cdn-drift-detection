@@ -694,7 +694,7 @@
         "options": {
           "action": "ADD",
           "customHeaderName": "Strict-Transport-Security",
-          "customHeaderValue": "max-age=86400",
+          "customHeaderValue": "max-age=31536000",
           "standardModifyHeaderName": "OTHER"
         }
       },

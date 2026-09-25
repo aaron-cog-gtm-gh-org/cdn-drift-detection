@@ -7,7 +7,7 @@
       {
         "description": "Execute Cloudflare Managed Ruleset",
         "action": "execute",
-        "enabled": false,
+        "enabled": true,
         "expression": "true",
         "action_parameters": {
           "overrides": {
