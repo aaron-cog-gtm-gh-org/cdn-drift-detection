@@ -8,7 +8,7 @@
   "http3": "off",
   "0rtt": "on",
   "brotli": "on",
-  "browser_cache_ttl": 14400,
+  "browser_cache_ttl": 86400,
   "cache_level": "aggressive",
   "development_mode": "off",
   "security_level": "high",
