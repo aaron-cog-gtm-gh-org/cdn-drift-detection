@@ -136,12 +136,15 @@ class FakeClient:
         return {"ok": True}
 
     def poll_session(self, session_id, *, interval=0, timeout=60,
-                     on_tick=None, on_waiting=None):
+                     on_tick=None, on_waiting=None, done_when=None):
         from orchestrator.devin_client import DevinClient
         waiting_armed = True
         while True:
             body = self.get_session(session_id)
             if DevinClient._terminal(body):
+                return body
+            if done_when and not DevinClient.waiting(body) \
+                    and done_when(body):
                 return body
             if on_tick:
                 on_tick(body)

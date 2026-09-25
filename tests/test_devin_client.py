@@ -98,10 +98,18 @@ def test_poll_terminal_on_finished_detail():
     assert out["status_detail"] == "finished"
 
 
-def test_poll_terminal_on_structured_output():
+def test_poll_terminal_on_done_when_report_ready():
+    """A bare structured_output is NOT terminal — a session can publish a
+    partial report mid-task. `done_when` (the caller's completeness rule)
+    is what ends polling on a report."""
     def h(r):
         return _sess_response("running", None, {"verdict": "drift_detected"})
-    out = make_client(h).poll_session("s1", interval=0)
+    client = make_client(h)
+    with pytest.raises(TimeoutError):
+        client.poll_session("s1", interval=0, timeout=0)
+    out = client.poll_session(
+        "s1", interval=0, timeout=60,
+        done_when=lambda b: b.get("structured_output") is not None)
     assert out["structured_output"]["verdict"] == "drift_detected"
 
 
@@ -285,3 +293,96 @@ def test_poll_deadline_still_fires_on_real_work(monkeypatch):
     client = make_client(lambda r: httpx.Response(200, json=next(bodies)))
     with pytest.raises(TimeoutError):
         client.poll_session("s1", interval=10, timeout=25)
+
+
+# ---------------- the partial-report regression ---------------------------
+#
+# PR #17's live failure: sessions publish a partial structured_output
+# (findings, no remediation) BEFORE asking the operator, and _terminal used
+# to treat any non-null structured_output as done — poll returned while the
+# session was sitting waiting, and on_waiting never fired.
+
+from orchestrator.run_detection import report_complete
+
+PARTIAL = {"findings": [{"field": "tls.min_version"}],
+           "remediation": None}
+FINAL = {"findings": [{"field": "tls.min_version"}],
+         "remediation": {"pull_request_url": "https://github.com/x/y/pull/1"}}
+
+
+def _bodies(*states):
+    out = []
+    for st in states:
+        if st == "working":
+            out.append({"status": "running", "status_detail": None})
+        elif st == "waiting":
+            out.append({"status": "running",
+                        "status_detail": "waiting_for_user",
+                        "structured_output": dict(PARTIAL)})
+        elif st == "suspended":
+            out.append({"status": "suspended",
+                        "status_detail": "inactivity",
+                        "structured_output": dict(PARTIAL)})
+        elif st == "done":
+            out.append({"status": "exit", "status_detail": "finished",
+                        "structured_output": dict(FINAL)})
+    return out
+
+
+def _client_for(bodies):
+    it = iter(bodies)
+    return make_client(lambda r: httpx.Response(200, json=next(it)))
+
+
+def test_partial_report_while_waiting_does_not_terminate():
+    """running/waiting_for_user carrying a partial report: fires on_waiting,
+    keeps polling, returns only on the completed (PR-carrying) report."""
+    fired = []
+    out = _client_for(_bodies("working", "waiting", "waiting", "done")) \
+        .poll_session("s1", interval=0,
+                      on_waiting=lambda b: fired.append(b),
+                      done_when=lambda b: report_complete(b, False))
+    assert len(fired) == 1
+    assert out["structured_output"]["remediation"]["pull_request_url"]
+
+
+def test_partial_report_while_suspended_does_not_terminate():
+    """suspended/inactivity with a partial report is the same: still
+    waiting, still resumable."""
+    fired = []
+    out = _client_for(_bodies("working", "suspended", "done")) \
+        .poll_session("s1", interval=0,
+                      on_waiting=lambda b: fired.append(b),
+                      done_when=lambda b: report_complete(b, False))
+    assert len(fired) == 1
+    assert out["status_detail"] == "finished"
+
+
+def test_report_complete_predicate_variants():
+    # report_only: any dict report is the whole job
+    assert report_complete({"structured_output": PARTIAL}, True)
+    # no findings -> nothing to decide or remediate
+    assert report_complete({"structured_output":
+                            {"findings": [], "remediation": None}}, False)
+    # findings but no remediation yet -> NOT done (the regression case)
+    assert not report_complete({"structured_output": PARTIAL}, False)
+    # PR opened -> done
+    assert report_complete({"structured_output": FINAL}, False)
+    # every finding recorded unresolved -> also done
+    assert report_complete({"structured_output":
+                            {"findings": [{"field": "f"}],
+                             "remediation": {"unresolved":
+                                             [{"field": "f"}]}}}, False)
+    # no report at all -> not done
+    assert not report_complete({"structured_output": None}, False)
+    assert not report_complete({}, True)
+
+
+def test_exit_while_waiting_is_still_not_terminal():
+    """A terminal-looking status while waiting keeps polling (the relay
+    can still answer it); exit without a waiting state is terminal."""
+    assert not DevinClient._terminal(
+        {"status": "suspended", "status_detail": "inactivity"})
+    assert DevinClient._terminal(
+        {"status": "exit", "status_detail": "finished"})
+    assert DevinClient._terminal({"status": "error"})

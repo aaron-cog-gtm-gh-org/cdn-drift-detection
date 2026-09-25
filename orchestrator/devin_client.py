@@ -120,16 +120,28 @@ class DevinClient:
 
     @staticmethod
     def _terminal(body):
+        # a waiting session is mid-task by definition — never terminal,
+        # whatever the status fields say (a suspended/inactivity body must
+        # keep polling so the relay can resume it with send_message)
+        if DevinClient.waiting(body):
+            return False
         return (body.get("status") in DevinClient.TERMINAL_STATUSES
-                or body.get("status_detail") == "finished"
-                or body.get("structured_output") is not None)
+                or body.get("status_detail") == "finished")
 
     def poll_session(self, session_id, *, interval=20, timeout=2700,
-                     on_tick=None, on_waiting=None):
+                     on_tick=None, on_waiting=None, done_when=None):
         """Poll until the session terminates or `timeout` seconds elapse.
 
-        Terminal: status in {exit, error}, status_detail == "finished", or a
-        non-null structured_output. Raises TimeoutError past the deadline.
+        Terminal: `status` in {exit, error} or `status_detail == "finished"`.
+        A session reporting a waiting state is NEVER terminal — not even on
+        a terminal-looking status — it is mid-task, holding a question for
+        the operator. A non-null `structured_output` is deliberately NOT a
+        terminal signal: a session may publish a partial report before it
+        asks the operator anything. `done_when` is an optional
+        callable(body) -> bool consulted as an *additional* terminal
+        condition, checked only after the waiting guard — the caller decides
+        what a complete structured_output looks like. Raises TimeoutError
+        past the deadline.
 
         `on_waiting(body)` fires once per waiting *episode* — the first tick
         the session reports a waiting state — then re-arms once the session
@@ -149,6 +161,9 @@ class DevinClient:
             now = time.monotonic()
             body = self.get_session(session_id)
             if self._terminal(body):
+                return body
+            if done_when is not None and not self.waiting(body) \
+                    and done_when(body):
                 return body
             if on_tick:
                 on_tick(body)

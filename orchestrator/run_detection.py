@@ -229,6 +229,31 @@ class OperatorRelay:
         return False
 
 
+def report_complete(body, report_only):
+    """poll_session `done_when`: is this body's structured_output final?
+
+    Sessions publish a PARTIAL report (findings, no remediation) before
+    asking the authority question — so 'a report exists' is not done. In
+    remediation mode the session is done when it has opened the PR, or
+    consciously left every finding unresolved; in --report-only mode any
+    report at all is the whole job.
+    """
+    rep = body.get("structured_output")
+    if not isinstance(rep, dict):
+        return False
+    if report_only:
+        return True
+    findings = rep.get("findings") or []
+    if not findings:
+        return True  # nothing to decide, nothing to remediate
+    rem = rep.get("remediation") or {}
+    if rem.get("pull_request_url"):
+        return True
+    # every finding consciously left alone (all skipped / inexpressible)
+    # is also done
+    return len(rem.get("unresolved") or []) >= len(findings)
+
+
 # ---------------- structured-output validation ----------------
 
 
@@ -423,7 +448,8 @@ def main(argv=None):
             on_tick=lambda b: out.session_status(
                 d, "waiting" if _waiting(b)
                 else b.get("status"), b.get("acus_consumed")),
-            on_waiting=relay.handler(d, sessions[d]))
+            on_waiting=relay.handler(d, sessions[d]),
+            done_when=lambda b: report_complete(b, args.report_only))
 
     reports = {}
     bad = []
