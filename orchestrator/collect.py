@@ -70,31 +70,22 @@ def collect_all(source=None, domains=None, akamai_base=None,
     return {d: collect_domain(source, d, on_fetch) for d in domains}
 
 
-def golden_bundle(domain, mapping_doc, root=None):
-    """The third per-domain artifact: everything a detection session needs
-    to judge, sourced from the same IaC tree `golden_info` reads — the
-    terraform/<domain> module in full.
+def mapping_bundle(domain, mapping_doc):
+    """The third per-domain artifact: the field mapping scoped to this
+    domain — the vocabulary the session compares with. The Terraform tree
+    is deliberately NOT attached: the session compares the two live
+    documents only, and uses the checked-out repo for remediation.
 
     `mapping_doc` is the parsed mapping YAML; only the fields scoped to this
     domain are carried (a field with no `domains:` list applies to every
     domain).
     """
-    from drift.iac import iac_root, iac_sha
     d = domain
-    files = {}
-    for p in sorted(iac_root(root).joinpath(d).rglob("*")):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(iac_root(root) / d).as_posix()
-        files[rel] = json.loads(p.read_text()) if p.suffix == ".json" \
-            else p.read_text()
     scoped = [f for f in mapping_doc.get("fields", [])
               if f.get("domains") is None or d in f["domains"]]
     return {
         "domain": d,
-        "golden_sha": iac_sha(d, root),
         "mapping_version": mapping_doc.get("version"),
-        "files": files,
         "mapping": {
             "version": mapping_doc.get("version"),
             "defaults": mapping_doc.get("defaults", {}),
@@ -124,12 +115,13 @@ def _dump(path, obj, sort_keys=True):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def write_bundles(run_id, bundles, golden_shas, mapping_version, outdir,
+def write_bundles(run_id, bundles, iac_shas, mapping_version, outdir,
                   attachment_urls=None):
     """Write per-domain bundles + manifest; returns the manifest dict.
 
-    `golden_shas` maps domain -> sha256 of that domain's golden tree — the
-    provenance is per-domain because the content differs per domain.
+    `iac_shas` maps domain -> drift.iac.iac_sha of that domain's Terraform
+    module — report provenance identifying the IaC revision any remediation
+    branched from.
     """
     outdir = Path(outdir) / run_id
     outdir.mkdir(parents=True, exist_ok=True)
@@ -141,8 +133,8 @@ def write_bundles(run_id, bundles, golden_shas, mapping_version, outdir,
         "files": {},
     }
     for domain, bundle in bundles.items():
-        entry = {"golden_sha": golden_shas[domain]}
-        for side in ("akamai", "cloudflare", "golden"):
+        entry = {"iac_sha": iac_shas[domain]}
+        for side in ("akamai", "cloudflare", "mapping"):
             if side not in bundle:
                 continue
             fname = f"{domain}.{side}.json"
@@ -153,7 +145,7 @@ def write_bundles(run_id, bundles, golden_shas, mapping_version, outdir,
                 # sort_keys cannot order against strings; insertion order
                 # is deterministic either way
                 "sha256": _dump(path, bundle[side],
-                                sort_keys=(side != "golden")),
+                                sort_keys=(side != "mapping")),
                 "attachment_url": attachment_urls.get(fname),
             }
         manifest["files"][domain] = entry
@@ -173,7 +165,7 @@ def attachment_manifest(domain, manifest):
         f"- `{Path(entry['cloudflare']['path']).name}` — the domain's live "
         "Cloudflare state: zone settings, every ruleset in full, and DNS "
         "records for the zone.",
-        f"- `{Path(entry['golden']['path']).name}` — the intended state this "
-        "domain is judged against: golden_sha, main.tf, the golden rule tree "
-        "and App Sec config, and the field mapping scoped to this domain.",
+        f"- `{Path(entry['mapping']['path']).name}` — the field mapping scoped "
+        "to this domain: each field's provider paths, comparator, severity, "
+        "and the value tables and defaults the comparison needs.",
     ])

@@ -15,7 +15,6 @@ import uvicorn
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from drift.iac import iac_sha
 from drift.sources import ApiSource, DOMAINS
 from orchestrator import collect
 
@@ -92,26 +91,21 @@ def test_write_bundles_stable_and_manifest(sims, tmp_path):
     assert manifest["mapping_version"] == "v"
     assert len(manifest["files"]) == 4
     for d in DOMAINS:  # per-domain provenance, not a single global sha
-        assert manifest["files"][d]["golden_sha"] == f"sha-{d}"
+        assert manifest["files"][d]["iac_sha"] == f"sha-{d}"
 
 
 def test_attachment_manifest_names_files(tmp_path):
     manifest = {"files": {"www.rbcdemo.ca": {
         "akamai": {"path": "/x/www.rbcdemo.ca.akamai.json"},
         "cloudflare": {"path": "/x/www.rbcdemo.ca.cloudflare.json"},
-        "golden": {"path": "/x/www.rbcdemo.ca.golden.json"}}}}
+        "mapping": {"path": "/x/www.rbcdemo.ca.mapping.json"}}}}
     text = collect.attachment_manifest("www.rbcdemo.ca", manifest)
     assert "www.rbcdemo.ca.akamai.json" in text
     assert "www.rbcdemo.ca.cloudflare.json" in text
-    assert "www.rbcdemo.ca.golden.json" in text
+    assert "www.rbcdemo.ca.mapping.json" in text
 
 
-def test_golden_bundle_contents(tmp_path):
-    mod = tmp_path / "api.rbcdemo.ca"
-    (mod / "akamai").mkdir(parents=True)
-    (mod / "providers.tf").write_text("resource {}")
-    (mod / "akamai" / "rules.json").write_text('{"rules": []}')
-    (mod / "akamai" / "appsec.json").write_text('{"sec": true}')
+def test_mapping_bundle_contents():
     mapping = {
         "version": "v9",
         "defaults": {"cloudflare_settings": {"http2": "on"}},
@@ -122,18 +116,10 @@ def test_golden_bundle_contents(tmp_path):
             {"id": "only.www", "domains": ["www.rbcdemo.ca"]},
         ],
     }
-    b = collect.golden_bundle("api.rbcdemo.ca", mapping, root=tmp_path)
+    b = collect.mapping_bundle("api.rbcdemo.ca", mapping)
     assert b["domain"] == "api.rbcdemo.ca"
-    assert b["golden_sha"] == iac_sha("api.rbcdemo.ca", tmp_path)
     assert b["mapping_version"] == "v9"
-    assert b["files"]["providers.tf"] == "resource {}"
-    assert b["files"]["akamai/rules.json"] == {"rules": []}
-    assert b["files"]["akamai/appsec.json"] == {"sec": True}
     ids = [f["id"] for f in b["mapping"]["fields"]]
     assert ids == ["tls.min_version", "only.api"]  # domain-scoped
     assert b["mapping"]["version"] == "v9"
     assert "tls_min_version" in b["mapping"]["value_tables"]
-    # no appsec -> the file is omitted, not null
-    (mod / "akamai" / "appsec.json").unlink()
-    b2 = collect.golden_bundle("api.rbcdemo.ca", mapping, root=tmp_path)
-    assert "akamai/appsec.json" not in b2["files"]

@@ -21,13 +21,14 @@ SIM_CLOUDFLARE_BASE = "http://127.0.0.1:8082"
 
 # --- what the detection sessions are pointed at ---
 REPO_SLUG = "aaron-cog-gtm-gh-org/cdn-drift-detection"
-GOLDEN_BRANCH = "devin/1790214592-cdn-drift-fixtures"
+# branch the remediation PRs branch off — terraform/ does not exist on main
+IAC_BRANCH = "devin/1790338896-cross-provider-remediation"
 IAC_DIR = REPO / "terraform"
 
 # --- session defaults ---
 POLL_INTERVAL_S = 20
 POLL_TIMEOUT_S = 2700          # 45 min ceiling per detection session
-MAX_ACU_LIMIT = 10
+MAX_ACU_LIMIT = 25  # one session does comparison + remediation now
 DEVIN_MODE = "normal"
 
 

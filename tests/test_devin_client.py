@@ -154,3 +154,82 @@ def test_missing_token_exits(monkeypatch):
     from orchestrator import config
     with pytest.raises(SystemExit):
         config.get_token()
+
+
+def _msg_response(items, end=None, has_next=False, total=None):
+    return httpx.Response(200, json={
+        "items": items, "end_cursor": end, "has_next_page": has_next,
+        "total": total if total is not None else len(items)})
+
+
+def test_list_messages_paginates_until_no_next_page():
+    seen = []
+
+    def h(r):
+        seen.append(r)
+        if "cursor" not in dict(r.url.params):
+            return _msg_response(
+                [{"created_at": "t1", "event_id": "e1", "message": "q",
+                  "source": "devin", "origin": "x", "user_id": "u",
+                  "username": "devin"}],
+                end="cur-1", has_next=True)
+        assert dict(r.url.params)["cursor"] == "cur-1"
+        return _msg_response(
+            [{"created_at": "t2", "event_id": "e2", "message": "a",
+              "source": "user", "origin": "x", "user_id": "u",
+              "username": "op"}], has_next=False)
+
+    msgs = make_client(h).list_messages("s1")
+    assert [m["message"] for m in msgs] == ["q", "a"]
+    assert len(seen) == 2
+    assert seen[0].url.path.endswith("/sessions/s1/messages")
+
+
+def test_send_message_posts_message_body():
+    seen, h = capture(lambda r: httpx.Response(200, json={"ok": True}))
+    make_client(h).send_message("s1", "1: akamai")
+    req = seen[0]
+    assert req.method == "POST"
+    assert req.url.path.endswith("/sessions/s1/messages")
+    assert json.loads(req.content) == {"message": "1: akamai"}
+
+
+def test_waiting_covers_running_and_suspended_waiting_states():
+    assert DevinClient.waiting({"status": "running",
+                                "status_detail": "waiting_for_user"})
+    assert DevinClient.waiting({"status": "suspended",
+                                "status_detail": "inactivity"})
+    assert not DevinClient.waiting({"status": "running",
+                                    "status_detail": None})
+    assert not DevinClient.waiting({"status": "suspended",
+                                    "status_detail": "blocked"})
+    assert not DevinClient.waiting({"status": "exit",
+                                    "status_detail": "finished"})
+
+
+def test_waiting_is_not_terminal():
+    for body in ({"status": "running", "status_detail": "waiting_for_user"},
+                 {"status": "suspended", "status_detail": "inactivity"}):
+        assert not DevinClient._terminal(body)
+
+
+def test_on_waiting_fires_once_per_episode_and_rearms():
+    bodies = [
+        {"status": "running", "status_detail": None},           # working
+        {"status": "running", "status_detail": "waiting_for_user"},  # ep1
+        {"status": "suspended", "status_detail": "inactivity"},  # ep1, still
+        {"status": "running", "status_detail": None},           # working again
+        {"status": "running", "status_detail": "waiting_for_user"},  # ep2
+        {"status": "exit", "status_detail": "finished"},
+    ]
+    it = iter(bodies)
+    fired = []
+
+    def h(r):
+        b = next(it)
+        return httpx.Response(200, json=b)
+
+    out = make_client(h).poll_session(
+        "s1", interval=0, on_waiting=lambda b: fired.append(b))
+    assert len(fired) == 2  # one per episode, not per tick
+    assert out["status_detail"] == "finished"

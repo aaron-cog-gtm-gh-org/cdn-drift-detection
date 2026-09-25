@@ -83,9 +83,40 @@ class DevinClient:
     def get_session(self, session_id):
         return self._request("GET", self._org(f"/sessions/{session_id}"))
 
+    # -- messages --------------------------------------------------------------
+
+    def list_messages(self, session_id):
+        """All session messages, chronological — follows `end_cursor`
+        until `has_next_page` is false."""
+        items, cursor = [], None
+        while True:
+            params = {"cursor": cursor} if cursor else None
+            body = self._request(
+                "GET", self._org(f"/sessions/{session_id}/messages"),
+                params=params)
+            items.extend(body.get("items", []))
+            if not body.get("has_next_page"):
+                return items
+            cursor = body.get("end_cursor")
+
+    def send_message(self, session_id, message):
+        """Post an operator message; also resumes a suspended session."""
+        return self._request(
+            "POST", self._org(f"/sessions/{session_id}/messages"),
+            json={"message": message})
+
     # -- polling ---------------------------------------------------------------
 
     TERMINAL_STATUSES = {"exit", "error"}
+    # a session waiting on the operator: asked a question and paused, or
+    # suspended after idling while waiting — resumable via send_message,
+    # and in neither case terminal
+    WAITING = (("running", "waiting_for_user"), ("suspended", "inactivity"))
+
+    @staticmethod
+    def waiting(body):
+        return (body.get("status"), body.get("status_detail")) in \
+            DevinClient.WAITING
 
     @staticmethod
     def _terminal(body):
@@ -94,19 +125,31 @@ class DevinClient:
                 or body.get("structured_output") is not None)
 
     def poll_session(self, session_id, *, interval=20, timeout=2700,
-                     on_tick=None):
+                     on_tick=None, on_waiting=None):
         """Poll until the session terminates or `timeout` seconds elapse.
 
         Terminal: status in {exit, error}, status_detail == "finished", or a
         non-null structured_output. Raises TimeoutError past the deadline.
+
+        `on_waiting(body)` fires once per waiting *episode* — the first tick
+        the session reports a waiting state — then re-arms once the session
+        goes back to working, so a session may ask the operator more than
+        once. The callback may answer via send_message and polling resumes.
         """
         deadline = time.monotonic() + timeout
+        waiting_armed = True
         while True:
             body = self.get_session(session_id)
             if self._terminal(body):
                 return body
             if on_tick:
                 on_tick(body)
+            if on_waiting:
+                if self.waiting(body) and waiting_armed:
+                    on_waiting(body)
+                    waiting_armed = False
+                elif not self.waiting(body):
+                    waiting_armed = True
             if time.monotonic() >= deadline:
                 raise TimeoutError(
                     f"session {session_id} did not terminate within {timeout}s "
