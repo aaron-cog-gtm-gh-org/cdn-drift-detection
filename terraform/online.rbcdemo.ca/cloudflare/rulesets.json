@@ -154,6 +154,20 @@
             }
           }
         }
+      },
+      {
+        "description": "security-headers",
+        "action": "rewrite",
+        "enabled": true,
+        "expression": "true",
+        "action_parameters": {
+          "headers": {
+            "X-Content-Type-Options": {
+              "operation": "set",
+              "value": "nosniff"
+            }
+          }
+        }
       }
     ]
   },
