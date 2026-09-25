@@ -109,7 +109,7 @@
       {
         "id": 9101,
         "name": "Open-banking partner rate",
-        "averageThreshold": 1000,
+        "averageThreshold": 100,
         "burstThreshold": 50,
         "period": 60,
         "action": "deny",
