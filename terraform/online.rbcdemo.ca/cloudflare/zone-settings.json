@@ -1,6 +1,6 @@
 {
   "ssl": "full",
-  "min_tls_version": "1.0",
+  "min_tls_version": "1.2",
   "tls_1_3": "on",
   "always_use_https": "on",
   "automatic_https_rewrites": "on",
