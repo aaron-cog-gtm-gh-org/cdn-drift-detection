@@ -1,5 +1,6 @@
-"""console.py — PlainReporter must emit the exact legacy strings; DemoReporter
-must render every method without raising."""
+"""console.py — both reporters must render the cross-provider report shape;
+the run_detection seams are exercised with a fake DevinClient."""
+import json
 import sys
 from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
@@ -11,29 +12,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from orchestrator.console import DemoReporter, PlainReporter, make_reporter
 
 REPORT = {
-    "domain": "www.rbcdemo.ca", "golden_sha": "abc", "mapping_version": "v",
+    "domain": "www.rbcdemo.ca", "iac_sha": "abc", "mapping_version": "v",
     "verdict": "drift_detected",
     "summary": {"fields_compared": 12, "findings_total": 2,
-                "by_severity": {"critical": 1, "high": 1},
-                "by_provider": {"akamai": 1, "cloudflare": 1}},
+                "by_severity": {"critical": 1, "medium": 1}},
     "findings": [
-        {"field": "tls.min_version", "provider": "cloudflare",
-         "severity": "critical", "equivalence": "semantically_different",
-         "golden_value": "1.2", "observed_value": "1.0",
-         "locator": {"provider_path": "$.x"},
+        {"field": "waf.managed_ruleset_enabled", "severity": "critical",
+         "disagreement": "value_mismatch",
+         "akamai_value": "true", "cloudflare_value": "false",
+         "locator": {"akamai_path": "$.a", "cloudflare_path": "$.c"},
          "explanation": "e", "impact": "i",
-         "remediation_route": "iac_pr", "confidence": "high"},
-        {"field": "origins.hostname_set", "provider": "akamai",
-         "severity": "high", "equivalence": "semantically_different",
-         "golden_value": "g", "observed_value": "o",
-         "locator": {"provider_path": "$.y"},
+         "recommended_authority": "akamai",
+         "recommendation_rationale": "r", "confidence": "high"},
+        {"field": "tls.hsts_max_age", "severity": "medium",
+         "disagreement": "value_mismatch",
+         "akamai_value": "86400", "cloudflare_value": "31536000",
+         "locator": {"akamai_path": "$.a2", "cloudflare_path": "$.c2"},
          "explanation": "e", "impact": "i",
-         "remediation_route": "human_review", "confidence": "high"},
+         "recommended_authority": "cloudflare",
+         "recommendation_rationale": "r", "confidence": "high"},
     ],
     "equivalent_but_different": [
-        {"field": "tls.hsts_max_age", "provider": "akamai",
-         "why_equivalent": "31536000s == 1y"},
+        {"field": "tls.min_version", "akamai_value": "TLSV1_2",
+         "cloudflare_value": "1.2",
+         "why_equivalent": "value table maps TLSV1_2 -> 1.2"},
     ],
+    "not_comparable": [{"field": "bot.edge_layer",
+                        "reason": "unsupported_at_cloudflare"}],
+    "decisions": [{"field": "waf.managed_ruleset_enabled",
+                   "authority": "akamai", "source": "user"}],
+    "remediation": {
+        "pull_request_url": "https://github.com/x/y/pull/7",
+        "changes": [{"field": "waf.managed_ruleset_enabled",
+                     "provider_changed": "cloudflare",
+                     "file": "terraform/www.rbcdemo.ca/cloudflare/rulesets.json",
+                     "from_value": "enabled: false", "to_value": "enabled: true"}],
+        "unresolved": []},
+    "fields_reviewed": ["waf.managed_ruleset_enabled", "tls.hsts_max_age",
+                        "tls.min_version", "bot.edge_layer"],
 }
 
 
@@ -47,53 +63,46 @@ def _plain_stdout(fn):
 def test_plain_session_created_exact():
     out = _plain_stdout(lambda r: r.session_created(
         "www.rbcdemo.ca", "devin-42", "https://x/sessions/devin-42"))
-    assert out == "  created www.rbcdemo.ca: devin-42\n"
+    assert out == ("  created www.rbcdemo.ca: devin-42 "
+                   "https://x/sessions/devin-42\n")
 
 
-def test_plain_findings_exact():
+def test_plain_findings_renders_both_providers():
     out = _plain_stdout(lambda r: r.findings("www.rbcdemo.ca", REPORT))
-    lines = out.splitlines()
-    assert lines[0] == ""
-    assert lines[1] == ("== www.rbcdemo.ca — verdict: drift_detected "
-                        "(2 findings, 12 fields compared) ==")
-    f0, f1 = REPORT["findings"]
-    assert lines[2] == (f"  {f0['severity']:9s} {f0['provider']:10s} "
-                        f"{f0['field']:36s} {f0['equivalence']:22s} -> "
-                        f"{f0['remediation_route']}")
-    assert lines[3] == (f"  {f1['severity']:9s} {f1['provider']:10s} "
-                        f"{f1['field']:36s} {f1['equivalence']:22s} -> "
-                        f"{f1['remediation_route']}")
+    assert "verdict: drift_detected" in out
+    assert "akamai=true" in out and "cloudflare=false" in out
+    assert "recommend akamai" in out
+    assert "recommend cloudflare" in out
 
 
-def test_plain_equivalences_exact():
+def test_plain_equivalences_both_values():
     out = _plain_stdout(lambda r: r.equivalences("www.rbcdemo.ca", REPORT))
-    assert out == "  ~equiv    akamai     tls.hsts_max_age\n"
+    assert "TLSV1_2" in out and "1.2" in out
 
 
-def test_plain_remediation_and_deferred_exact():
-    out = _plain_stdout(lambda r: (
-        r.remediation("iac_pr", "api.rbcdemo.ca", "devin-9"),
-        r.deferred("api.rbcdemo.ca", "cors.x", "provider writes are out of scope")))
-    assert out == ("  remediation iac_pr for api.rbcdemo.ca: devin-9\n"
-                   "  deferred (provider writes are out of scope): "
-                   "api.rbcdemo.ca cors.x\n")
+def test_plain_waiting_block_carries_url_and_question():
+    out = _plain_stdout(lambda r: r.waiting_for_decision(
+        "api.rbcdemo.ca", "https://x/sessions/devin-9",
+        "1. ratelimit.partner_api: akamai=1000 cf=100 — which is right?"))
+    assert "https://x/sessions/devin-9" in out
+    assert "ratelimit.partner_api" in out
+    assert "WAITING ON OPERATOR — api.rbcdemo.ca" in out
+
+
+def test_plain_remediation_renders_pr_and_changes():
+    out = _plain_stdout(lambda r: r.remediation("www.rbcdemo.ca", REPORT))
+    assert "https://github.com/x/y/pull/7" in out
+    assert "enabled: false -> enabled: true" in out
+    assert "terraform/www.rbcdemo.ca/cloudflare/rulesets.json" in out
 
 
 def test_plain_status_and_error_go_to_stderr():
     err = StringIO()
     with redirect_stderr(err):
-        PlainReporter().session_status("www.rbcdemo.ca", "running")
+        PlainReporter().session_status("www.rbcdemo.ca", "waiting")
         PlainReporter().error("SCHEMA: x")
-    assert "    www.rbcdemo.ca: running" in err.getvalue()
+    assert "    www.rbcdemo.ca: waiting" in err.getvalue()
     assert "SCHEMA: x" in err.getvalue()
-
-
-def test_plain_phase_and_artifact_silent():
-    out = _plain_stdout(lambda r: (
-        r.phase(1, 9, "Golden state"),
-        r.artifact("f.json", "/tmp/f.json", sha="abc", nbytes=3),
-        r.summary("run", {}, "/tmp")))
-    assert out == ""
 
 
 def _demo():
@@ -104,8 +113,9 @@ def _demo():
 
 def test_demo_every_method_renders():
     r = _demo()
-    r.phase(1, 9, "Golden state", subtitle="sub")
-    r.golden_state(["www.rbcdemo.ca"], {"www.rbcdemo.ca": "role"}, {"www.rbcdemo.ca": "abc123"}, "v")
+    r.phase(1, 8, "IaC state", subtitle="sub")
+    r.iac_state(["www.rbcdemo.ca"], {"www.rbcdemo.ca": "role"},
+                {"www.rbcdemo.ca": "abc123"}, "v")
     r.step("line")
     r.artifact("www.akamai.json", "/tmp/x.json", sha="abc", nbytes=5)
     r.artifact_table([("f.json", "/tmp/f.json", "abc", 5)])
@@ -116,12 +126,18 @@ def test_demo_every_method_renders():
                       "https://x/sessions/devin-1")
     with r.sessions_live():
         r.session_status("www.rbcdemo.ca", "running", 1.5)
-        r.session_status("www.rbcdemo.ca", "exit", 2.0)
+        r.session_status("www.rbcdemo.ca", "waiting", 2.0)
+        r.session_status("www.rbcdemo.ca", "exit", 3.0)
     r.findings("www.rbcdemo.ca", REPORT)
     r.equivalences("www.rbcdemo.ca", REPORT)
-    r.remediation("iac_pr", "www.rbcdemo.ca", "devin-2",
-                  "https://x/sessions/devin-2")
+    r.waiting_for_decision("www.rbcdemo.ca", "https://x/sessions/devin-1",
+                           "which side?")
+    r.decision_prompt("www.rbcdemo.ca")
+    r.decision_sent("www.rbcdemo.ca", "1: akamai")
+    r.decision_external("www.rbcdemo.ca", "https://x/sessions/devin-1")
+    r.remediation("www.rbcdemo.ca", REPORT)
     r.deferred("www.rbcdemo.ca", "cors.x", "note")
+    r.coverage_warning("www.rbcdemo.ca", ["f.x"], [], [])
     r.summary("run-1", {"www.rbcdemo.ca": REPORT}, "/tmp/art")
     r.warn("w")
     r.error("e")
@@ -133,8 +149,8 @@ def test_demo_every_method_renders():
                 "required": ["field"],
                 "properties": {
                     "severity": {"enum": ["high"]},
-                    "equivalence": {"enum": ["equivalent"]},
-                    "remediation_route": {"enum": ["iac_pr"]},
+                    "disagreement": {"enum": ["value_mismatch"]},
+                    "recommended_authority": {"enum": ["akamai"]},
                 },
             }},
         },
@@ -142,95 +158,68 @@ def test_demo_every_method_renders():
     r.schema_block({"type": "object"})
     r.prompt_block("www.rbcdemo.ca", "PROMPT BODY")
     text = r.console.file.getvalue()
-    assert "Golden state" in text and "PROMPT BODY" in text
-    assert "critical" in text and "tls.min_version" in text
-    assert "equivalent" in text and "31536000s" in text
+    assert "IaC state" in text and "PROMPT BODY" in text
+    assert "critical" in text and "waf.managed_ruleset_enabled" in text
+    assert "pull/7" in text and "waiting" in text
 
 
-def test_demo_equivalences_compact_truncates_reason():
-    long_reason = "r" * 200
-    rep = {"equivalent_but_different": [
-        {"field": "tls.hsts_max_age", "provider": "akamai",
-         "why_equivalent": "short"},
-        {"field": "ratelimit.partner_api",
-         "provider": "cloudflare", "why_equivalent": long_reason},
-    ]}
-    r = _demo()  # width=100 -> avail = 100 - 42 - 7 = 51
-    r.equivalences("www.rbcdemo.ca", rep)
+def test_demo_inconclusive_renders_red_reason():
+    rep = dict(REPORT, verdict="inconclusive", findings=[],
+               notes="input missing")
+    r = _demo()
+    r.findings("www.rbcdemo.ca", rep)
+    r.summary("run", {"www.rbcdemo.ca": rep}, "/tmp")
     text = r.console.file.getvalue()
-    assert "tls.hsts_max_age" in text and "(akamai)" in text
-    assert "ratelimit.partner_api" in text and "(cloudflare)" in text
-    assert "r" * 200 not in text and "r" * 50 + "…" in text
-    assert "short" in text
-    # full mode never truncates
-    r2 = _demo()
-    r2.equivalences("www.rbcdemo.ca", rep, full=True)
-    full_text = r2.console.file.getvalue()
-    assert "r" * 50 in full_text and "…" not in full_text
+    assert "INCONCLUSIVE" in text and "input missing" in text
+    out = _plain_stdout(lambda p: (
+        p.findings("www.rbcdemo.ca", rep)))
+    assert "INCONCLUSIVE: input missing" in out
 
 
-def test_demo_equivalences_narrow_console_degrades():
-    from rich.console import Console
-    r = DemoReporter(console=Console(file=StringIO(), force_terminal=True,
-                                     width=40))
-    rep = {"equivalent_but_different": [
-        {"field": "f.x", "provider": "akamai",
-         "why_equivalent": "r" * 100}]}
-    r.equivalences("www.rbcdemo.ca", rep)  # avail floor 20, no negative width
-    assert "f.x" in r.console.file.getvalue()
+# ---------------- run_detection seams ----------------
 
 
-def test_replay_renders_saved_reports(tmp_path):
-    import json as _json
-    from orchestrator.run_detection import replay
-    det = tmp_path / "run-x" / "detection"
-    det.mkdir(parents=True)
-    (det / "www.rbcdemo.ca.json").write_text(_json.dumps(REPORT))
-    buf = StringIO()
-    rc = replay(str(det), PlainReporter(), 9)
-    assert rc == 0
-    # demo path renders without raising too
-    rc = replay(str(det), _demo(), 9)
-
-
-def test_no_remediate_renders_phase9_without_sessions(tmp_path, monkeypatch):
+def _wire_main(tmp_path, monkeypatch, report, mapping_fields=None):
+    """Wire every seam of run_detection.main; returns (rd, created, Fake)."""
     import json as _json
     import orchestrator.run_detection as rd
 
+    if mapping_fields is None:
+        mapping_fields = tuple(report.get("fields_reviewed") or ())
+
     d = "www.rbcdemo.ca"
-    report = dict(REPORT, verdict="drift_detected",
-                  fields_reviewed=[f["field"] for f in REPORT["findings"]] +
-                                  [e["field"] for e in
-                                   REPORT["equivalent_but_different"]])
     (tmp_path / "f.json").write_text("{}")
     manifest = {"files": {d: {
         s: {"path": str(tmp_path / "f.json"), "sha256": "s"}
-        for s in ("akamai", "cloudflare", "golden")}}}
-    reviewed_ids = report["fields_reviewed"]
-    monkeypatch.setattr(
-        rd, "golden_bundles",
-        lambda doms, db_path=None: {
-            x: {"mapping": {"fields": [{"id": i} for i in reviewed_ids]}}
-            for x in doms})
-
-    monkeypatch.setattr(rd, "golden_info",
-                        lambda doms, db_path=None: ({x: "a" * 64 for x in doms}, "v"))
+        for s in ("akamai", "cloudflare", "mapping")}}}
+    monkeypatch.setattr(rd, "iac_info",
+                        lambda doms, root=None: ({x: "a" * 64 for x in doms},
+                                                 "v"))
     monkeypatch.setattr(rd.collect, "collect_akamai", lambda *a, **k: {})
     monkeypatch.setattr(rd.collect, "collect_cloudflare", lambda *a, **k: {})
+    monkeypatch.setattr(rd.collect, "mapping_bundle",
+                        lambda dom, doc: {"mapping": {
+                            "fields": [{"id": i} for i in mapping_fields]}})
+
     def _write_bundles(rid, b, shas, mv, adir):
         run_dir = adir / rid
-        run_dir.mkdir(parents=True)
+        run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "manifest.json").write_text(
             _json.dumps(manifest) + "\n")
         return manifest
 
     monkeypatch.setattr(rd.collect, "write_bundles", _write_bundles)
-    monkeypatch.setattr(rd, "render_prompt", lambda *a, **k: "prompt")
+    monkeypatch.setattr(rd, "render_prompts", lambda *a, **k: {d: "prompt"})
     monkeypatch.setattr(rd.config, "get_token", lambda: "t")
     monkeypatch.setattr(rd.config, "ARTIFACTS_DIR", tmp_path)
-    monkeypatch.setattr(rd, "validate_report", lambda d, r: [])
+    monkeypatch.setattr(rd, "validate_report", lambda d_, r: [])
+    return rd, d
 
-    created = []
+
+def test_main_creates_session_with_repo_and_relay(tmp_path, monkeypatch):
+    rd, d = _wire_main(tmp_path, monkeypatch, REPORT)
+    sent = []
+    poll_kwargs = {}
 
     class FakeClient:
         def __init__(self, *a, **k):
@@ -241,66 +230,45 @@ def test_no_remediate_renders_phase9_without_sessions(tmp_path, monkeypatch):
 
         def create_session(self, *a, **k):
             created.append(k)
-            return {"session_id": "sess-1"}
+            return {"session_id": "sess-1",
+                    "url": "https://x/sessions/sess-1"}
+
+        def list_messages(self, sid):
+            return [{"source": "devin", "message": "which side?"}]
+
+        def send_message(self, sid, message):
+            sent.append((sid, message))
 
         def poll_session(self, sid, **k):
+            poll_kwargs.update(k)
             k["on_tick"]({"status": "running", "acus_consumed": 1})
-            return {"status": "exit", "structured_output": report}
+            k["on_waiting"]({"status": "running",
+                            "status_detail": "waiting_for_user",
+                            "acus_consumed": 1})
+            return {"status": "exit", "structured_output": REPORT}
 
+    created = []
     monkeypatch.setattr(rd, "DevinClient", FakeClient)
-    monkeypatch.setattr(rd, "execute_remediation",
-                        lambda *a, **k: pytest.fail("must not run"))
-
-    spy = PlainReporter()
-    phases = []
-    spy.phase = lambda i, t, title, subtitle=None: phases.append(title)
-    monkeypatch.setattr(rd, "make_reporter", lambda **k: spy)
-
+    monkeypatch.setattr(rd, "_stdin_line", lambda timeout: "1: akamai\n")
     buf = StringIO()
     with redirect_stdout(buf):
-        rc = rd.main(["--no-remediate", "--plain", "--domain", d])
+        rc = rd.main(["--plain", "--domain", d])
     assert rc == 0
-    assert any("Remediation routing" in t and "disabled" in t
-               for t in phases)
     text = buf.getvalue()
-    assert "would route to a remediation session" in text
-    assert len(created) == 1  # the detection session only — nothing else
-    assert created[0].get("repos") is None  # detection touches no repository
+    assert "https://x/sessions/sess-1" in text      # clickable session link
+    assert "which side?" in text                    # the question rendered
+    assert sent == [("sess-1", "1: akamai")]        # the answer was relayed
+    assert "https://github.com/x/y/pull/7" in text  # the PR that came out
+    assert created[0]["repos"] == [rd.config.REPO_SLUG]
+    assert "on_waiting" in poll_kwargs
 
 
-def _mocked_main(tmp_path, monkeypatch, report, mapping_fields):
-    """Wire every seam of run_detection.main; returns (argv)->rc with plain
-    output capturable. `report` is the session's structured output."""
-    import json as _json
-    import orchestrator.run_detection as rd
-
-    d = "www.rbcdemo.ca"
-    (tmp_path / "f.json").write_text("{}")
-    manifest = {"files": {d: {
-        s: {"path": str(tmp_path / "f.json"), "sha256": "s"}
-        for s in ("akamai", "cloudflare", "golden")}}}
-    monkeypatch.setattr(
-        rd, "golden_bundles",
-        lambda doms, db_path=None: {
-            x: {"mapping": {"fields": [{"id": i} for i in mapping_fields]}}
-            for x in doms})
-    monkeypatch.setattr(rd, "golden_info",
-                        lambda doms, db_path=None: ({x: "a" * 64 for x in doms}, "v"))
-    monkeypatch.setattr(rd.collect, "collect_akamai", lambda *a, **k: {})
-    monkeypatch.setattr(rd.collect, "collect_cloudflare", lambda *a, **k: {})
-
-    def _write_bundles(rid, b, shas, mv, adir):
-        run_dir = adir / rid
-        run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "manifest.json").write_text(
-            _json.dumps(manifest) + "\n")
-        return manifest
-
-    monkeypatch.setattr(rd.collect, "write_bundles", _write_bundles)
-    monkeypatch.setattr(rd, "render_prompt", lambda *a, **k: "prompt")
-    monkeypatch.setattr(rd.config, "get_token", lambda: "t")
-    monkeypatch.setattr(rd.config, "ARTIFACTS_DIR", tmp_path)
-    monkeypatch.setattr(rd, "validate_report", lambda d, r: [])
+def test_main_report_only(tmp_path, monkeypatch):
+    clean = dict(REPORT, verdict="in_sync", findings=[],
+                 equivalent_but_different=[], not_comparable=[],
+                 remediation=None, decisions=[], fields_reviewed=["f.a"])
+    rd, d = _wire_main(tmp_path, monkeypatch, clean)
+    seen = {}
 
     class FakeClient:
         def __init__(self, *a, **k):
@@ -313,79 +281,71 @@ def _mocked_main(tmp_path, monkeypatch, report, mapping_fields):
             return {"session_id": "sess-1"}
 
         def poll_session(self, sid, **k):
-            return {"status": "exit", "structured_output": report}
+            seen.update(k)
+            return {"status": "exit", "structured_output": clean}
 
     monkeypatch.setattr(rd, "DevinClient", FakeClient)
-    monkeypatch.setattr(rd, "make_reporter", lambda **k: PlainReporter())
-    return rd
+    calls = []
+    monkeypatch.setattr(rd, "render_prompts",
+                        lambda *a, **k: calls.append((a, k)) or {d: "p"})
+    rc = rd.main(["--plain", "--report-only", "--domain", d])
+    assert rc == 0
+    a, k = calls[0]
+    assert (k.get("report_only") if k else a[5]) is True
 
 
-def test_coverage_gap_warns_and_exits_2(tmp_path, monkeypatch):
-    rep = dict(REPORT, fields_reviewed=["tls.min_version"])
-    rd = _mocked_main(tmp_path, monkeypatch, rep,
-                      ["tls.min_version", "headers.security_static"])
-    buf, errbuf = StringIO(), StringIO()
-    with redirect_stdout(buf), redirect_stderr(errbuf):
-        rc = rd.main(["--no-remediate", "--plain",
-                      "--domain", "www.rbcdemo.ca"])
-    assert rc == 2
-    out = buf.getvalue() + errbuf.getvalue()
-    assert "COVERAGE GAP" in out and "headers.security_static" in out
-    assert "never reviewed" in out
+def test_main_answers_file_relays_without_stdin(tmp_path, monkeypatch):
+    rd, d = _wire_main(tmp_path, monkeypatch, REPORT)
+    answers = tmp_path / "answers.yaml"
+    answers.write_text("www.rbcdemo.ca:\n"
+                       "  waf.managed_ruleset_enabled: akamai\n"
+                       "  tls.hsts_max_age: cloudflare\n")
+    sent = []
 
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
 
-def test_coverage_clean_and_unknown_id(tmp_path, monkeypatch):
-    reviewed = {f["field"] for f in REPORT["findings"]} | \
-               {e["field"] for e in REPORT["equivalent_but_different"]}
-    # clean: every mapped id reviewed -> 0
-    rep = dict(REPORT, fields_reviewed=sorted(reviewed | {"x.extra"}))
-    rd = _mocked_main(tmp_path, monkeypatch, rep,
-                      sorted(reviewed | {"x.extra"}))
-    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-        assert rd.main(["--no-remediate", "--plain",
-                        "--domain", "www.rbcdemo.ca"]) == 0
-    # unknown: a reviewed id absent from the mapping is flagged
-    rep2 = dict(REPORT, fields_reviewed=sorted(reviewed | {"invented.id"}))
-    rd = _mocked_main(tmp_path, monkeypatch, rep2, sorted(reviewed))
-    buf, errbuf = StringIO(), StringIO()
-    with redirect_stdout(buf), redirect_stderr(errbuf):
-        rc = rd.main(["--no-remediate", "--plain",
-                      "--domain", "www.rbcdemo.ca"])
-    assert rc == 2
-    assert "invented.id" in errbuf.getvalue()
+        def upload_attachment(self, path):
+            return "att-url"
+
+        def create_session(self, *a, **k):
+            return {"session_id": "sess-1"}
+
+        def list_messages(self, sid):
+            return [{"source": "devin", "message": "which side?"}]
+
+        def send_message(self, sid, message):
+            sent.append(message)
+
+        def poll_session(self, sid, **k):
+            k["on_waiting"]({"status": "suspended",
+                            "status_detail": "inactivity"})
+            return {"status": "exit", "structured_output": REPORT}
+
+    monkeypatch.setattr(rd, "DevinClient", FakeClient)
+    monkeypatch.setattr(rd, "_stdin_line",
+                        lambda timeout: pytest.fail("stdin must not be read"))
+    buf = StringIO()
+    with redirect_stdout(buf):
+        rc = rd.main(["--plain", "--domain", d, "--answers", str(answers)])
+    assert rc == 0
+    assert sent == ["Answering by field id: "
+                    "waf.managed_ruleset_enabled: akamai, "
+                    "tls.hsts_max_age: cloudflare"]
+    assert "waf.managed_ruleset_enabled: akamai" in buf.getvalue()
+    # the exchange landed in the run dir for later reconstruction
+    log = (tmp_path.glob("*/detection/www.rbcdemo.ca.messages.jsonl"))
+    lines = [json.loads(l) for l in next(iter(log)).read_text().splitlines()]
+    assert lines[0]["from"] == "devin" and lines[1]["via"] == "answers_file"
 
 
 def test_inconclusive_domain_exits_2(tmp_path, monkeypatch):
-    import json as _json
-    import orchestrator.run_detection as rd
-
-    d = "www.rbcdemo.ca"
-    report = dict(REPORT, verdict="inconclusive", findings=[],
-                  equivalent_but_different=[],
-                  notes="golden input missing — could not compare")
-    (tmp_path / "f.json").write_text("{}")
-    manifest = {"files": {d: {
-        s: {"path": str(tmp_path / "f.json"), "sha256": "s"}
-        for s in ("akamai", "cloudflare", "golden")}}}
-    monkeypatch.setattr(rd, "golden_bundles",
-                        lambda doms, db_path=None: {x: {} for x in doms})
-    monkeypatch.setattr(rd, "golden_info",
-                        lambda doms, db_path=None: ({x: "a" * 64 for x in doms}, "v"))
-    monkeypatch.setattr(rd.collect, "collect_akamai", lambda *a, **k: {})
-    monkeypatch.setattr(rd.collect, "collect_cloudflare", lambda *a, **k: {})
-
-    def _write_bundles(rid, b, shas, mv, adir):
-        run_dir = adir / rid
-        run_dir.mkdir(parents=True)
-        (run_dir / "manifest.json").write_text(
-            _json.dumps(manifest) + "\n")
-        return manifest
-
-    monkeypatch.setattr(rd.collect, "write_bundles", _write_bundles)
-    monkeypatch.setattr(rd, "render_prompt", lambda *a, **k: "prompt")
-    monkeypatch.setattr(rd.config, "get_token", lambda: "t")
-    monkeypatch.setattr(rd.config, "ARTIFACTS_DIR", tmp_path)
-    monkeypatch.setattr(rd, "validate_report", lambda d, r: [])
+    rd, d = _wire_main(tmp_path, monkeypatch,
+                       dict(REPORT, verdict="inconclusive", findings=[],
+                            equivalent_but_different=[], decisions=[],
+                            remediation=None,
+                            notes="input missing — could not compare"))
 
     class FakeClient:
         def __init__(self, *a, **k):
@@ -398,38 +358,30 @@ def test_inconclusive_domain_exits_2(tmp_path, monkeypatch):
             return {"session_id": "sess-1"}
 
         def poll_session(self, sid, **k):
-            return {"status": "exit", "structured_output": report}
+            return {"status": "exit", "structured_output":
+                    dict(REPORT, verdict="inconclusive", findings=[],
+                         notes="input missing")}
 
     monkeypatch.setattr(rd, "DevinClient", FakeClient)
-    monkeypatch.setattr(rd, "execute_remediation",
-                        lambda *a, **k: iter(()))
-    monkeypatch.setattr(rd, "plan_remediation",
-                        lambda *a, **k: {"domain": d, "deferred": [],
-                                         "skipped": True})
     monkeypatch.setattr(rd, "make_reporter", lambda **k: _demo())
+    assert rd.main(["--plain", "--domain", d]) == 2
 
-    assert rd.main(["--no-remediate", "--plain", "--domain", d]) == 2
 
-
-def test_demo_inconclusive_renders_red_reason():
-    rep = dict(REPORT, verdict="inconclusive", findings=[],
-               notes="golden input missing")
-    r = _demo()
-    r.findings("www.rbcdemo.ca", rep)
-    r.summary("run", {"www.rbcdemo.ca": rep}, "/tmp")
-    text = r.console.file.getvalue()
-    assert "INCONCLUSIVE" in text and "golden input missing" in text
-    # plain carries it too
-    out = _plain_stdout(lambda p: (
-        p.findings("www.rbcdemo.ca", rep)))
-    assert "INCONCLUSIVE: golden input missing" in out
+def test_replay_renders_saved_reports(tmp_path):
+    import json as _json
+    from orchestrator.run_detection import replay
+    det = tmp_path / "run-x" / "detection"
+    det.mkdir(parents=True)
+    (det / "www.rbcdemo.ca.json").write_text(_json.dumps(REPORT))
+    rc = replay(str(det), PlainReporter(), 8)
+    assert rc == 0
+    rc = replay(str(det), _demo(), 8)
 
 
 def test_replay_missing_dir_exits():
-    import pytest
     from orchestrator.run_detection import replay
     with pytest.raises(SystemExit):
-        replay("/nonexistent/run", PlainReporter(), 9)
+        replay("/nonexistent/run", PlainReporter(), 8)
 
 
 def test_make_reporter_selection(monkeypatch):

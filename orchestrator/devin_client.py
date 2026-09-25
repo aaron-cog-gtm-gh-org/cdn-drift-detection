@@ -83,32 +83,106 @@ class DevinClient:
     def get_session(self, session_id):
         return self._request("GET", self._org(f"/sessions/{session_id}"))
 
+    # -- messages --------------------------------------------------------------
+
+    def list_messages(self, session_id):
+        """All session messages, chronological — follows `end_cursor`
+        until `has_next_page` is false."""
+        items, cursor = [], None
+        while True:
+            params = {"cursor": cursor} if cursor else None
+            body = self._request(
+                "GET", self._org(f"/sessions/{session_id}/messages"),
+                params=params)
+            items.extend(body.get("items", []))
+            if not body.get("has_next_page"):
+                return items
+            cursor = body.get("end_cursor")
+
+    def send_message(self, session_id, message):
+        """Post an operator message; also resumes a suspended session."""
+        return self._request(
+            "POST", self._org(f"/sessions/{session_id}/messages"),
+            json={"message": message})
+
     # -- polling ---------------------------------------------------------------
 
     TERMINAL_STATUSES = {"exit", "error"}
+    # a session waiting on the operator: asked a question and paused, or
+    # suspended after idling while waiting — resumable via send_message,
+    # and in neither case terminal
+    WAITING = (("running", "waiting_for_user"), ("suspended", "inactivity"))
+
+    @staticmethod
+    def waiting(body):
+        return (body.get("status"), body.get("status_detail")) in \
+            DevinClient.WAITING
 
     @staticmethod
     def _terminal(body):
+        # a waiting session is mid-task by definition — never terminal,
+        # whatever the status fields say (a suspended/inactivity body must
+        # keep polling so the relay can resume it with send_message)
+        if DevinClient.waiting(body):
+            return False
         return (body.get("status") in DevinClient.TERMINAL_STATUSES
-                or body.get("status_detail") == "finished"
-                or body.get("structured_output") is not None)
+                or body.get("status_detail") == "finished")
 
     def poll_session(self, session_id, *, interval=20, timeout=2700,
-                     on_tick=None):
+                     on_tick=None, on_waiting=None, done_when=None):
         """Poll until the session terminates or `timeout` seconds elapse.
 
-        Terminal: status in {exit, error}, status_detail == "finished", or a
-        non-null structured_output. Raises TimeoutError past the deadline.
+        Terminal precedence: `done_when` FIRST — an optional
+        callable(body) -> bool giving the caller's completeness rule; a
+        complete report ends polling however the session's status reads
+        (a session can publish its finished report and then sit in
+        waiting_for_user telling the operator it's done). Then `status` in
+        {exit, error} or `status_detail == "finished"` — but a session
+        reporting a waiting state is NEVER terminal on status alone: it is
+        mid-task, holding a question for the operator. A non-null
+        `structured_output` is deliberately NOT a terminal signal either:
+        a session may publish a partial report before it asks the operator
+        anything, and the caller's `done_when` decides what complete looks
+        like. Raises TimeoutError past the deadline.
+
+        `on_waiting(body)` fires once per waiting *episode* — the first tick
+        the session reports a waiting state — then re-arms once the session
+        goes back to working, so a session may ask the operator more than
+        once. The callback may answer via send_message and polling resumes.
+
+        The timeout bounds *Devin's* work, not the human's: time spent in a
+        waiting state (running/waiting_for_user, suspended/inactivity) does
+        not count against the deadline — an unanswered question can hold a
+        session open indefinitely without raising TimeoutError.
         """
-        deadline = time.monotonic() + timeout
+        start = time.monotonic()
+        waited = 0.0          # completed waiting episodes
+        waiting_since = None  # open waiting episode, if any
+        waiting_armed = True
         while True:
+            now = time.monotonic()
             body = self.get_session(session_id)
+            if done_when is not None and done_when(body):
+                return body
             if self._terminal(body):
                 return body
             if on_tick:
                 on_tick(body)
-            if time.monotonic() >= deadline:
+            is_waiting = self.waiting(body)
+            if is_waiting and waiting_since is None:
+                waiting_since = now
+            elif not is_waiting and waiting_since is not None:
+                waited += now - waiting_since
+                waiting_since = None
+            if on_waiting:
+                if is_waiting and waiting_armed:
+                    on_waiting(body)
+                    waiting_armed = False
+                elif not is_waiting:
+                    waiting_armed = True
+            open_wait = (now - waiting_since) if waiting_since is not None else 0.0
+            if now - start - waited - open_wait >= timeout:
                 raise TimeoutError(
                     f"session {session_id} did not terminate within {timeout}s "
-                    f"(last status={body.get('status')!r})")
+                    f"of working time (last status={body.get('status')!r})")
             time.sleep(interval)

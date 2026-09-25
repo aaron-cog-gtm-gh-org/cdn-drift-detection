@@ -7,28 +7,28 @@ invented for this demo. IPs are from TEST-NET-2/TEST-NET-3 documentation ranges.
 ## Targeted versions
 
 - **Akamai PAPI rule format**: `v2023-01-05` (Ion product, `prd_Ion`).
-- **Akamai Terraform provider**: `~> 6.2` in golden files.
+- **Akamai Terraform provider**: `~> 6.2` in `terraform/<domain>/providers.tf`.
 - **Cloudflare Terraform provider**: `~> 5.0`. Resource names verified against
   the v5 upgrade guide (terraform-provider-cloudflare, `version-5-upgrade.md`):
   `cloudflare_zone_settings_override` is gone in v5 — each setting is a
   separate **`cloudflare_zone_setting`** resource; `cloudflare_record` is now
   **`cloudflare_dns_record`**; **`cloudflare_ruleset`** keeps its name.
 - **`terraform init` was not run** (no provider downloads against the network);
-  golden files are verified with `terraform fmt -check` only.
+  the `terraform/` modules are verified with `terraform fmt -check` only.
 
 ## Deliberate choices
 
 - `appsec.json` exists for `www`, `online`, and `api`. Rate policies and bot
   management live there (as they do on a real Akamai footprint) — the property
-  rule tree has no rate-limit or bot-management behaviors. The golden
-  counterpart is `golden/<domain>/appsec/security-config.json`, referenced
-  from `main.tf` via `local.appsec_config` so intended values live in one
+  rule tree has no rate-limit or bot-management behaviors. The Terraform
+  counterpart is `terraform/<domain>/akamai/appsec.json`, referenced from
+  `akamai.tf` via `local.appsec_config` so remediable values live in one
   place. `assets` has no App Sec config (CDN-only product scope).
 - `dns_records.json` keeps `CNAME -> *.edgekey.net` (proxied off) for
   `online` and `assets` — those hostnames are still Akamai-primary mid-migration.
 - `online`'s `http_response_headers_transform` ruleset lacks the
-  `security-headers` rule the golden Terraform declares — the migration gap
-  in scenario D-06.
+  `security-headers` rule its Akamai tree sets (`X-Content-Type-Options:
+  nosniff`) — the migration gap in scenario 7 of `docs/drift-scenarios.md`.
 - `assets`'s settings response omits `http2` entirely (suppression case S-02);
   the mapping `defaults:` block supplies the provider default `on`.
 - `assets` Akamai `minTlsVersion` is `DYNAMIC`, which resolves to TLS 1.2

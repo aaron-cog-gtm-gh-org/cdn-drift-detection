@@ -58,13 +58,6 @@ curl -s -H "Authorization: Bearer demo-token" \
   "http://127.0.0.1:8082/client/v4/zones?name=www.rbcdemo.ca" | jq .result[0].id
 ```
 
-## Golden store
-
-`scripts/load_golden_store.py` seeds `store/golden.db` (SQLite, generated and
-gitignored) from `golden/` and `mapping/`. `golden_sha` covers
-`main_tf + rules_json + appsec_json`; `mapping_version` comes from the YAML.
-Re-running is idempotent except for one new `load_run` row per invocation.
-
 ## Where the simulation is approximate
 
 - **EdgeGrid signature is not verified** — only the header shape is checked.

@@ -1,0 +1,33 @@
+{
+  "ssl": "strict",
+  "min_tls_version": "1.2",
+  "tls_1_3": "on",
+  "always_use_https": "on",
+  "automatic_https_rewrites": "on",
+  "opportunistic_encryption": "off",
+  "http3": "off",
+  "0rtt": "on",
+  "brotli": "on",
+  "browser_cache_ttl": 14400,
+  "cache_level": "aggressive",
+  "development_mode": "off",
+  "security_level": "high",
+  "challenge_ttl": 1800,
+  "websockets": "off",
+  "ip_geolocation": "on",
+  "true_client_ip_header": "on",
+  "waf": "on",
+  "ciphers": [
+    "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "ECDHE-ECDSA-CHACHA20-POLY1305",
+    "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECDHE-RSA-CHACHA20-POLY1305"
+  ],
+  "origin_max_http_version": "2",
+  "polish": "lossless",
+  "websockets_log": "off",
+  "email_obfuscation": "on",
+  "hotlink_protection": "on",
+  "ipv6": "on",
+  "early_hints": "on"
+}

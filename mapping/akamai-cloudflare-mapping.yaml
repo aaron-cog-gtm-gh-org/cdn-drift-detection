@@ -1,19 +1,28 @@
 # Semantic field mapping: Akamai Ion (PAPI rule format v2023-01-05) vs Cloudflare v4 API.
 #
-# Each field names where the equivalent setting lives on both providers and in the
-# golden state. `golden.path` resolves against golden/<domain>/rules/rules.json
-# (the intended Akamai rule tree); `golden.literal` / `golden.values` carry the
-# intended value directly for Cloudflare-only fields — the same intent is
-# expressed as HCL in golden/<domain>/main.tf.
+# Each field names where the equivalent setting lives on each provider. The
+# comparison is symmetric: there is no baseline provider — the two sides are
+# compared to each other and any disagreement is routed to a human, who
+# decides which provider is right and whose Terraform gets the fix.
+#
+# Whether a field is comparable is answered structurally: a side carrying
+# `unsupported: true` cannot express the field at all, so the field is
+# `not_comparable`; a side whose path resolves to nothing with the other
+# side configured is `missing_at_<provider>` (a migration gap); two resolved
+# sides are `equivalent` or a `disagreement` by the field's comparator.
 #
 # Comparators: exact, bool_eq, numeric_eq, numeric_ge, duration_eq, set_equal,
 # semantic_enum, semantic_enum_ge, presence, regex_equivalent.
+# Ordered comparators (numeric_ge, semantic_enum_ge) degenerate to equality
+# in a peer comparison: two sides are equivalent only if neither is strictly
+# weaker than the other.
 #
-# `allow_absent: true` means an unresolved provider path is a *migration gap*
-# finding (route: human), not drift and not a validation error.
-# `unsupported: true` means the provider cannot express the field — the field
-# can only ever produce a migration gap, never drift.
-version: "2026.09.3"
+# `allow_absent: true` marks a provider side that may legitimately have no
+# configured object: the absence is a `missing_at_<provider>` finding when
+# the other side is configured, not a path-resolution error.
+# `unsupported: true` means the provider cannot express the field at all —
+# the field is not comparable, never a disagreement.
+version: "2026.09.4"
 rule_format: "v2023-01-05"
 
 # Provider defaults applied when the other side omits the field entirely.
@@ -53,23 +62,25 @@ value_tables:
 
 # These sections are data, not commentary: they are the source of truth for
 # what the flags and comparators mean, and they ship inside each detection
-# session's golden bundle so nothing has to be inferred from a flag's name.
+# session's bundle so nothing has to be inferred from a flag's name.
 
 flag_definitions:
   allow_absent: >-
     When true on a provider side, an unresolved provider path is a migration
-    gap: report it as a finding routed to human review. It is NOT permission
-    for the field to be absent -- the golden intent still applies and the gap
-    itself is the reportable condition.
+    gap: report it as a `missing_at_<provider>` finding routed to human
+    review when the other side is configured. It is NOT a resolution error
+    and NOT permission for the field to be absent -- the gap itself is the
+    reportable condition.
   unsupported: >-
     When true on a provider side, that provider cannot express this field at
-    all. The side is skipped entirely -- it can only ever produce a migration
-    gap, never drift, and no provider path is resolved for it.
+    all. The field is not comparable -- it can only ever produce a
+    `not_comparable` classification, never a disagreement, and no provider
+    path is resolved for the unsupported side.
 
 comparator_definitions:
   exact: >-
-    Canonicalized observed values must equal the canonicalized golden values
-    in the same order, compared as strings.
+    Canonicalized values on both sides must be equal in the same order,
+    compared as strings.
   bool_eq: >-
     Both sides are coerced to booleans (on/true/1/enabled vs off/false/0/
     disabled) before comparison -- a boolean and a mode string meaning the
@@ -77,25 +88,27 @@ comparator_definitions:
   numeric_eq: >-
     Both sides are coerced to numbers before comparison.
   numeric_ge: >-
-    Every observed value must be numerically greater than or equal to the
-    golden value -- the golden value is a floor, not a target.
+    Ordered comparator with no baseline in a peer comparison: degenerates
+    to numeric equality -- equivalent only if neither side is strictly
+    weaker than the other.
   duration_eq: >-
     Durations are normalized to seconds before comparison (s, m, h, d, w
     suffixes supported) -- "4h" and 14400 are equal.
   set_equal: >-
-    The union of all observed values, as a set, must equal the union of all
-    golden values -- order is never significant.
+    The union of each side's values, as a set, must be equal -- order is
+    never significant.
   semantic_enum: >-
     Values are canonicalized through the field's value table, then compared
     as sorted string sets -- different provider vocabularies for the same
     semantic value are equal.
   semantic_enum_ge: >-
-    Like semantic_enum, but when both sides parse as numbers the observed
-    values must be numerically greater than or equal to golden (e.g. a TLS
-    version floor); non-numeric values fall back to exact equality.
+    Like numeric_ge: in a peer comparison it degenerates to equality --
+    numeric when both sides parse as numbers (e.g. a TLS version floor),
+    exact string equality otherwise.
   presence: >-
-    The field must be expressed: at least one resolved value that is not
-    null, empty, or false. The value itself is not compared to golden.
+    The field must be expressed on both sides: at least one resolved value
+    that is not null, empty, or false on each. The value itself is not
+    compared.
   regex_equivalent: >-
     Expressions are normalized (whitespace and quotes stripped, lowercased)
     and compared as sorted sets -- syntactic differences between the two
@@ -111,15 +124,10 @@ key_definitions:
   domains: >-
     The domains this field applies to. A field with no domains: list applies
     to every domain.
-  golden: >-
-    How the intended value is specified: `path` resolves a jsonpath in the
-    named golden `fixture` (rules or appsec) against the attached golden
-    document, `literal` is the intended value directly, and `values` is a
-    per-domain map of intended values.
   fixture: >-
     Names which attached document a side's `path` resolves against -- akamai:
     rules, hostnames, appsec; cloudflare: settings, rulesets, dns_records,
-    zone; golden: rules, appsec.
+    zone.
   value_table: >-
     Names a table in `value_tables` translating each provider's vocabulary to
     a canonical value before comparison -- different tokens for the same
@@ -165,9 +173,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='min_tls_version')].value"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='origin')].options.minTlsVersion"
-
   - id: tls.ssl_mode
     description: Cloudflare origin encryption mode (Akamai has no equivalent dial)
     severity: critical
@@ -181,9 +186,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='ssl')].value"
-    golden:
-      literal: "strict"
-
   - id: tls.client_ciphers
     description: TLS cipher suites offered to clients
     severity: high
@@ -196,12 +198,8 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='ciphers')].value"
-    golden:
-      literal: ["ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-ECDSA-CHACHA20-POLY1305",
-                "ECDHE-RSA-AES128-GCM-SHA256", "ECDHE-RSA-CHACHA20-POLY1305"]
-
   - id: tls.hsts_max_age
-    description: HSTS max-age emitted at the edge (must be >= golden)
+    description: HSTS max-age emitted at the edge
     severity: medium
     control_ref: "PCI-DSS 4.0 req 4.2.1"
     owner: edge-security
@@ -212,9 +210,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='HSTS')].action_parameters.headers['Strict-Transport-Security'].value"
-    golden:
-      path: "$.rules.behaviors[?(@.options.customHeaderName=='Strict-Transport-Security')].options.customHeaderValue"
-
   # ---------- HTTP versions and protocol ----------
   - id: http.http2
     description: HTTP/2 to clients
@@ -226,9 +221,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='http2')].value"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='http2')].options.enabled"
-
   - id: http.http3
     description: HTTP/3 (QUIC) to clients
     severity: low
@@ -239,9 +231,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='http3')].value"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='http3')].options.enabled"
-
   - id: http.zero_rtt
     description: TLS 0-RTT early data
     severity: medium
@@ -253,9 +242,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='0rtt')].value"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='adaptiveAcceleration')].options.enableRo"
-
   - id: http.enhanced_protocol
     description: Enhanced Akamai Protocol to origin (Akamai-only)
     severity: low
@@ -266,9 +252,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare has no equivalent proprietary origin protocol"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='enhancedAkamaiProtocol')].options.enabled"
-
   - id: http.origin_max_version
     description: Maximum HTTP version to origin
     severity: low
@@ -280,9 +263,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='origin_max_http_version')].value"
-    golden:
-      literal: "2"
-
   - id: http.websockets
     description: WebSocket support
     severity: low
@@ -294,13 +274,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='websockets')].value"
-    golden:
-      values:
-        api.rbcdemo.ca: true
-        www.rbcdemo.ca: false
-        online.rbcdemo.ca: false
-        assets.rbcdemo.ca: false
-
   # ---------- Caching and TTLs ----------
   - id: caching.default_ttl
     description: Edge cache TTL applied by the default rule
@@ -312,9 +285,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='browser_cache_ttl')].value"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='caching')].options.ttl"
-
   - id: caching.cache_level
     description: Cloudflare cache level (Akamai cache behavior is per-rule)
     severity: medium
@@ -326,9 +296,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='cache_level')].value"
-    golden:
-      literal: "aggressive"
-
   - id: caching.tiered_distribution
     description: Akamai tiered distribution (parent caching)
     severity: low
@@ -340,9 +307,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare tiered cache is account-level, not zone API"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='tieredDistribution')].options.enabled"
-
   - id: caching.prefetch
     description: Object prefetching
     severity: low
@@ -353,9 +317,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "No Cloudflare equivalent; closest is Early Hints + prefetch rules"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='prefetch')].options.enabled"
-
   - id: caching.browser_revalidate
     description: must-revalidate on cached objects
     severity: low
@@ -366,9 +327,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare controls browser TTL via browser_cache_ttl, not revalidation flags"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='caching')].options.mustRevalidate"
-
   # ---------- Cache key composition ----------
   - id: cachekey.query_params_assets
     description: Query parameters included in the cache key (assets)
@@ -381,9 +339,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_request_cache_settings')].rules[*].action_parameters.cache_key.custom_key.query_string.include"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='cacheKeyQueryParams')].options.parameters"
-
   - id: cachekey.strategy_online
     description: Online banking cache key excludes all query params
     severity: high
@@ -398,9 +353,6 @@ fields:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_request_cache_settings')].rules[*].action_parameters.cache_key.custom_key.query_string.include"
       empty_means: "[]"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='cacheKeyQueryParams')].options.behavior"
-
   - id: cachekey.remove_vary_api
     description: Vary header removed so JSON caches correctly (api)
     severity: low
@@ -412,9 +364,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare ignores most Vary by default; no toggle in zone API"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='removeVary')].options.enabled"
-
   # ---------- Compression ----------
   - id: compression.gzip
     description: Gzip response to clients
@@ -427,9 +376,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare compresses automatically; brotli is the only toggle"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='gzipResponse')].options.behavior"
-
   - id: compression.brotli
     description: Brotli compression
     severity: low
@@ -440,9 +386,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='brotli')].value"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='adaptiveAcceleration')].options.enableBrotliCompression"
-
   - id: compression.image_polish
     description: Cloudflare Polish image optimization (approximates Akamai Image Manager)
     severity: low
@@ -455,13 +398,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='polish')].value"
-    golden:
-      values:
-        api.rbcdemo.ca: "off"
-        www.rbcdemo.ca: "lossless"
-        online.rbcdemo.ca: "lossless"
-        assets.rbcdemo.ca: "lossless"
-
   # ---------- Origin and failover ----------
   - id: origins.hostname_set
     description: Complete set of origin hostnames referenced anywhere in the tree
@@ -474,9 +410,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare origin hostnames live in Load Balancer pools / origin rules, not in this export"
-    golden:
-      path: "$..behaviors[?(@.name=='origin')].options.hostname"
-
   - id: origins.failover
     description: Secondary origin failover policy (online banking)
     severity: high
@@ -489,9 +422,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Failover is a Cloudflare Load Balancer concern; not expressed as a zone ruleset"
-    golden:
-      path: "$.rules.children[?(@.name=='Origin failover')].children[*].behaviors[?(@.name=='originFailureRecoveryPolicy')].options.enabled"
-
   - id: origins.forward_host_header
     description: Host header forwarded to origin
     severity: medium
@@ -502,8 +432,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_request_origin')].rules[?(@.description=='Route to origin pool')].action_parameters.host_header"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='origin')].options.forwardHostHeader"
     value_translate:
       REQUEST_HOST_HEADER: "{domain}"
 
@@ -518,9 +446,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='true_client_ip_header')].value"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='origin')].options.enableTrueClientIp"
-
   # ---------- Security headers ----------
   - id: headers.security_static
     description: Static security headers (nosniff / DENY) via response transform
@@ -535,9 +460,6 @@ fields:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='security-headers')]"
       allow_absent: true
-    golden:
-      literal: true
-
   - id: headers.csp
     description: Content-Security-Policy header on HTML (www)
     severity: medium
@@ -551,9 +473,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "CSP not yet expressed as a CF response-header transform on this zone"
-    golden:
-      path: "$..behaviors[?(@.options.customHeaderName=='Content-Security-Policy')].options.customHeaderValue"
-
   # ---------- WAF and managed rulesets ----------
   - id: waf.managed_ruleset_enabled
     description: Managed WAF ruleset executing on all traffic
@@ -566,9 +485,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_request_firewall_managed')].rules[?(@.description=='Execute Cloudflare Managed Ruleset')].enabled"
-    golden:
-      literal: true
-
   - id: waf.owasp_sensitivity
     description: OWASP core ruleset sensitivity / paranoia level
     severity: high
@@ -582,13 +498,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_request_firewall_managed')].rules[?(@.description=='Execute OWASP Core Ruleset')].action_parameters.overrides.sensitivity_level"
-    golden:
-      values:
-        www.rbcdemo.ca: "medium"
-        online.rbcdemo.ca: "high"
-        api.rbcdemo.ca: "high"
-        assets.rbcdemo.ca: "high"
-
   - id: waf.edge_toggle
     description: Zone-level WAF master switch
     severity: high
@@ -601,9 +510,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='waf')].value"
-    golden:
-      literal: true
-
   - id: waf.appsec_global_rate
     description: Global rate policy threshold (req/min) in the App Sec export
     severity: medium
@@ -617,9 +523,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Global rate policy is expressed per-rule in http_ratelimit, not as one threshold"
-    golden:
-      literal: 500
-
   # ---------- Rate limiting ----------
   - id: ratelimit.login
     description: Login endpoint rate limit (requests per period)
@@ -634,10 +537,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_ratelimit')].rules[?(@.description=='Login rate limit')].ratelimit.requests_per_period"
-    golden:
-      fixture: appsec
-      path: "$.ratePolicies.items[?(@.id==9002)].averageThreshold"
-
   - id: ratelimit.partner_api
     description: Open-banking partner rate limit (requests/minute)
     severity: high
@@ -651,10 +550,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_ratelimit')].rules[?(@.description=='Open-banking partner rate')].ratelimit.requests_per_period"
-    golden:
-      fixture: appsec
-      path: "$.ratePolicies.items[?(@.id==9101)].averageThreshold"
-
   # ---------- Bot management ----------
   - id: bot.edge_layer
     description: Edge bot management layer enabled (www)
@@ -669,10 +564,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare Bot Management is a separate subscription product; not in rulesets export"
-    golden:
-      fixture: appsec
-      path: "$.botManagement.enabled"
-
   # ---------- Geo controls ----------
   - id: geo.blocked_countries
     description: Sanctioned-country geo block set
@@ -688,9 +579,6 @@ fields:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_request_firewall_custom')].rules[?(@.description=='Geo deny — sanctioned countries')].expression"
       extract_all: "\"([A-Z]{2})\""
-    golden:
-      literal: ["KP", "IR", "CU", "SY"]
-
   # ---------- CORS ----------
   - id: cors.allowed_origins
     description: CORS Access-Control-Allow-Origin set (api)
@@ -706,9 +594,6 @@ fields:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='CORS headers')].action_parameters.headers['Access-Control-Allow-Origin'].value"
       split: ","
-    golden:
-      literal: ["https://online.rbcdemo.ca", "https://www.rbcdemo.ca"]
-
   - id: cors.allow_credentials
     description: CORS Access-Control-Allow-Credentials (api)
     severity: medium
@@ -720,9 +605,6 @@ fields:
     cloudflare:
       fixture: rulesets
       path: "$.result[?(@.phase=='http_response_headers_transform')].rules[?(@.description=='CORS headers')].action_parameters.headers['Access-Control-Allow-Credentials'].value"
-    golden:
-      literal: "true"
-
   # ---------- Token auth ----------
   - id: auth.token_auth_downloads
     description: Token authorization required on protected download paths
@@ -736,9 +618,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare equivalent would be signed URLs via Workers/Access; not in zone export"
-    golden:
-      path: "$.rules.children[?(@.name=='Downloads token auth')].behaviors[?(@.name=='verifyTokenAuthorization')].options.enabled"
-
   - id: auth.central_authorization
     description: Delegated edge authorization on /v2/* (Akamai centralAuthorization)
     severity: high
@@ -751,9 +630,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Equivalent would be a Worker/API Shield function, not a zone ruleset rule"
-    golden:
-      path: "$.rules.children[?(@.name=='API authorization')].behaviors[?(@.name=='centralAuthorization')].options.enabled"
-
   - id: auth.api_shield_schema
     description: Schema enforcement on payees endpoints (api, App Sec apiConstraints)
     severity: high
@@ -767,10 +643,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "CF API Shield schema validation is configured under api_shield endpoints, not rulesets"
-    golden:
-      fixture: appsec
-      path: "$.apiConstraints.enabled"
-
   # ---------- Session / cookies ----------
   - id: session.cookie_bypass
     description: Cache bypass on session cookie (online)
@@ -784,9 +656,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Session-aware caching needs Cache Rules expressions; not yet expressed for online"
-    golden:
-      literal: "BYPASS"
-
   # ---------- Operational controls ----------
   - id: ops.maintenance_flag
     description: Maintenance-window variable exists and is OFF
@@ -799,9 +668,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Maintenance pages are Workers/snippets on Cloudflare"
-    golden:
-      literal: "OFF"
-
   - id: ops.observability_stream
     description: DataStream / edge log shipping enabled
     severity: medium
@@ -813,9 +679,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare Logpush is account-level, not zone export"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='datastream')].options.enabled"
-
   - id: ops.real_user_monitoring
     description: mPulse RUM beacon
     severity: low
@@ -826,9 +689,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare Web Analytics / RUM is a zone-level product toggle, not a setting id"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='mPulse')].options.enabled"
-
   - id: ops.sureroute
     description: SureRoute alternate-path racing (www)
     severity: low
@@ -840,9 +700,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Argo Smart Routing is the Cloudflare analogue; account-level billing feature"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='sureRoute')].options.enabled"
-
   - id: ops.post_allowed
     description: POST requests allowed at the edge
     severity: medium
@@ -853,9 +710,6 @@ fields:
     cloudflare:
       unsupported: true
       note: "Cloudflare permits POST by default; no zone toggle"
-    golden:
-      path: "$.rules.behaviors[?(@.name=='allowPost')].options.enabled"
-
   # ---------- Misc zone settings (Cloudflare side of the migration) ----------
   - id: zone.always_use_https
     description: Redirect http to https at edge
@@ -869,9 +723,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='always_use_https')].value"
-    golden:
-      literal: true
-
   - id: zone.automatic_https_rewrites
     description: Mixed-content rewrites
     severity: low
@@ -883,9 +734,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='automatic_https_rewrites')].value"
-    golden:
-      literal: true
-
   - id: zone.opportunistic_encryption
     description: Opportunistic encryption (HTTP/2 alt-svc)
     severity: low
@@ -897,9 +745,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='opportunistic_encryption')].value"
-    golden:
-      literal: false
-
   - id: zone.early_hints
     description: 103 Early Hints
     severity: low
@@ -911,13 +756,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='early_hints')].value"
-    golden:
-      values:
-        online.rbcdemo.ca: false
-        www.rbcdemo.ca: true
-        api.rbcdemo.ca: true
-        assets.rbcdemo.ca: true
-
   - id: zone.ip_geolocation
     description: CF-IPCountry header injection
     severity: low
@@ -929,9 +767,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='ip_geolocation')].value"
-    golden:
-      literal: true
-
   - id: zone.security_level
     description: Challenge aggressiveness
     severity: medium
@@ -944,13 +779,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='security_level')].value"
-    golden:
-      values:
-        www.rbcdemo.ca: "medium"
-        online.rbcdemo.ca: "high"
-        api.rbcdemo.ca: "high"
-        assets.rbcdemo.ca: "high"
-
   - id: zone.challenge_ttl
     description: Challenge-passage TTL (seconds)
     severity: low
@@ -962,9 +790,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='challenge_ttl')].value"
-    golden:
-      literal: 1800
-
   - id: zone.development_mode
     description: Development mode must stay off
     severity: medium
@@ -976,9 +801,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='development_mode')].value"
-    golden:
-      literal: false
-
   - id: zone.ipv6
     description: IPv6 to clients
     severity: low
@@ -990,9 +812,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='ipv6')].value"
-    golden:
-      literal: true
-
   - id: zone.email_obfuscation
     description: Email obfuscation for public pages
     severity: low
@@ -1004,13 +823,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='email_obfuscation')].value"
-    golden:
-      values:
-        online.rbcdemo.ca: false
-        www.rbcdemo.ca: true
-        api.rbcdemo.ca: true
-        assets.rbcdemo.ca: true
-
   - id: zone.hotlink_protection
     description: Hotlink protection on static assets
     severity: low
@@ -1022,13 +834,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='hotlink_protection')].value"
-    golden:
-      values:
-        assets.rbcdemo.ca: true
-        www.rbcdemo.ca: false
-        online.rbcdemo.ca: false
-        api.rbcdemo.ca: false
-
   - id: zone.tls13
     description: TLS 1.3 to clients
     severity: medium
@@ -1041,9 +846,6 @@ fields:
     cloudflare:
       fixture: settings
       path: "$.result[?(@.id=='tls_1_3')].value"
-    golden:
-      literal: true
-
   # ---------- DNS ----------
   - id: dns.edge_cname
     description: Edge CNAME chain intact while the domain stays Akamai-primary
@@ -1058,11 +860,6 @@ fields:
     cloudflare:
       fixture: dns_records
       path: "$.result[?(@.name=='{domain}')].content"
-    golden:
-      values:
-        online.rbcdemo.ca: "online-rbcdemo-ca.edgekey.net"
-        assets.rbcdemo.ca: "assets-rbcdemo-ca.edgekey.net"
-
   - id: dns.origin_ip
     description: Origin A record for CF-primary zones
     severity: high
@@ -1076,11 +873,6 @@ fields:
     cloudflare:
       fixture: dns_records
       path: "$.result[?(@.name=='{domain}')].content"
-    golden:
-      values:
-        www.rbcdemo.ca: "203.0.113.10"
-        api.rbcdemo.ca: "203.0.113.20"
-
   - id: dns.proxied
     description: Whether the hostname record is proxied through Cloudflare
     severity: medium
@@ -1092,9 +884,3 @@ fields:
     cloudflare:
       fixture: dns_records
       path: "$.result[?(@.name=='{domain}')].proxied"
-    golden:
-      values:
-        www.rbcdemo.ca: true
-        api.rbcdemo.ca: true
-        online.rbcdemo.ca: false
-        assets.rbcdemo.ca: false

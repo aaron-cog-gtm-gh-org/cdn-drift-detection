@@ -1,0 +1,18 @@
+[
+  {
+    "name": "assets.rbcdemo.ca",
+    "type": "CNAME",
+    "content": "assets-rbcdemo-ca.edgekey.net",
+    "proxied": false,
+    "ttl": 1,
+    "comment": "Akamai-primary; CF cutover pending"
+  },
+  {
+    "name": "rbcdemo.ca",
+    "type": "TXT",
+    "content": "\"v=spf1 include:rbcdemo-mail.ca -all\"",
+    "proxied": false,
+    "ttl": 300,
+    "comment": "SPF"
+  }
+]
