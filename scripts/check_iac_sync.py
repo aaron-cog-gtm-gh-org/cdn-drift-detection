@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from drift.iac import load_iac
 from drift.sources import DiskSource, DOMAINS
-from validate_fixtures import (apply_side_transforms, canon, get_default,
-                               resolve)
+from validate_cross_drift import (apply_side_transforms, canon, get_default,
+                                  resolve)
 
 REPO = Path(__file__).resolve().parent.parent
 
