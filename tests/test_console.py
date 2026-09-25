@@ -330,7 +330,8 @@ def test_main_answers_file_relays_without_stdin(tmp_path, monkeypatch):
     with redirect_stdout(buf):
         rc = rd.main(["--plain", "--domain", d, "--answers", str(answers)])
     assert rc == 0
-    assert sent == ["waf.managed_ruleset_enabled: akamai, "
+    assert sent == ["Answering by field id: "
+                    "waf.managed_ruleset_enabled: akamai, "
                     "tls.hsts_max_age: cloudflare"]
     assert "waf.managed_ruleset_enabled: akamai" in buf.getvalue()
     # the exchange landed in the run dir for later reconstruction

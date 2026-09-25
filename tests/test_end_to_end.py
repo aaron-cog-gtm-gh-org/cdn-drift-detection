@@ -268,5 +268,41 @@ def test_compose_answer_and_load_answers(tmp_path):
     f.write_text("api.rbcdemo.ca:\n  ratelimit.partner_api: cloudflare\n"
                  "  cors.allowed_origins: skip\n")
     answers = load_answers(f)
-    assert compose_answer(answers["api.rbcdemo.ca"]) == \
-        "ratelimit.partner_api: cloudflare, cors.allowed_origins: skip"
+    assert compose_answer(answers["api.rbcdemo.ca"]) == (
+        "Answering by field id: ratelimit.partner_api: cloudflare, "
+        "cors.allowed_origins: skip")
+
+
+def test_blank_enter_reprompts_instead_of_aborting(tmp_path, monkeypatch):
+    """A bare Enter is not an answer: stdin yields '\n' (blank), then the
+    real answer — the real answer is what gets relayed."""
+    holder = [FakeClient()]
+    rd, d = _wire(tmp_path, monkeypatch, holder)
+    lines = iter(["\n", "1: akamai\n"])
+    monkeypatch.setattr(rd, "_stdin_line", lambda timeout: next(lines))
+    buf = StringIO()
+    with redirect_stdout(buf):
+        rc = rd.main(["--plain", "--domain", d, "--poll-interval", "0"])
+    assert rc == 0
+    assert holder[0].sent == [(next(iter(holder[0].sessions)), "1: akamai")]
+
+
+def test_answers_file_missing_domain_warns_and_falls_through(
+        tmp_path, monkeypatch):
+    """--answers given but no entry for the waiting domain: the CLI warns
+    visibly (naming the asked fields) instead of silently blocking."""
+    holder = [FakeClient(ui_answered=True)]
+    rd, d = _wire(tmp_path, monkeypatch, holder)
+    answers = tmp_path / "a.yaml"
+    answers.write_text("other.example.com:\n  f: akamai\n")
+    monkeypatch.setattr(rd, "_stdin_line", lambda timeout: "")
+    buf, err = StringIO(), StringIO()
+    with redirect_stdout(buf):
+        from contextlib import redirect_stderr
+        with redirect_stderr(err):
+            rc = rd.main(["--plain", "--domain", d, "--answers",
+                          str(answers), "--poll-interval", "0"])
+    assert rc == 0
+    out = buf.getvalue() + err.getvalue()
+    assert "--answers has no entry for api.rbcdemo.ca" in out
+    assert "ratelimit.partner_api" in out  # the asked fields are named

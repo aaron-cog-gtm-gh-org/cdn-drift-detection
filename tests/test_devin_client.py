@@ -1,4 +1,5 @@
 """DevinClient tests — httpx.MockTransport only, never the real API."""
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -233,3 +234,54 @@ def test_on_waiting_fires_once_per_episode_and_rearms():
         "s1", interval=0, on_waiting=lambda b: fired.append(b))
     assert len(fired) == 2  # one per episode, not per tick
     assert out["status_detail"] == "finished"
+
+
+def test_poll_deadline_excludes_time_spent_waiting(monkeypatch):
+    """The timeout bounds Devin's work, not the human's: a session that
+    sits waiting well past the nominal timeout must not raise."""
+    import orchestrator.devin_client as dc
+
+    class FakeClock:
+        def __init__(self):
+            self.t = 0.0
+
+        def monotonic(self):
+            return self.t
+
+        def sleep(self, s):
+            self.t += s
+
+    clock = FakeClock()
+    monkeypatch.setattr(dc, "time", clock)
+
+    bodies = ([{"status": "running", "status_detail": "waiting_for_user"}]
+              * 10  # 10 ticks * 10s sleep = 100s of human thinking time
+              + [{"status": "exit", "status_detail": "finished"}])
+    it = iter(bodies)
+    client = make_client(lambda r: httpx.Response(200, json=next(it)))
+    # timeout=5 but ~100s elapse on the clock — all of it waiting
+    out = client.poll_session("s1", interval=10, timeout=5)
+    assert out["status_detail"] == "finished"
+
+
+def test_poll_deadline_still_fires_on_real_work(monkeypatch):
+    """Working (non-waiting) time still counts against the timeout."""
+    import orchestrator.devin_client as dc
+
+    class FakeClock:
+        def __init__(self):
+            self.t = 0.0
+
+        def monotonic(self):
+            return self.t
+
+        def sleep(self, s):
+            self.t += s
+
+    monkeypatch.setattr(dc, "time", FakeClock())
+    bodies = itertools.chain(
+        [{"status": "running", "status_detail": "waiting_for_user"}] * 3,
+        itertools.repeat({"status": "running", "status_detail": None}))
+    client = make_client(lambda r: httpx.Response(200, json=next(bodies)))
+    with pytest.raises(TimeoutError):
+        client.poll_session("s1", interval=10, timeout=25)

@@ -34,6 +34,7 @@ Tests never call this against the real API; the one live run is manual.
 import argparse
 import json
 import os
+import re
 import sys
 import threading
 
@@ -97,9 +98,13 @@ def render_prompts(domains, iac_shas, mapping_version, manifest,
 
 
 def compose_answer(field_choices):
-    """`{field: akamai|cloudflare|skip}` -> the message the session expects
-    ('field: choice, ...')."""
-    return ", ".join(f"{f}: {c}" for f, c in field_choices.items())
+    """`{field: akamai|cloudflare|skip}` -> the message the session expects.
+
+    Uses the field-id form with a one-line preamble so the session can't
+    misread it as position numbers (the question numbers findings
+    `1:`, `2:`, ...)."""
+    return ("Answering by field id: "
+            + ", ".join(f"{f}: {c}" for f, c in field_choices.items()))
 
 
 def load_answers(path):
@@ -166,6 +171,19 @@ class OperatorRelay:
             self._log(domain, {"from": "operator", "message": answer,
                                "via": "answers_file"})
             return
+        if self.answers:
+            # --answers was given but has no entry for this domain — a
+            # non-interactive run would otherwise block on stdin until EOF
+            asked = [ln.split(".", 1)[1].split(":", 1)[0].strip()
+                     for ln in question.splitlines()
+                     if re.match(r"^\s*\d+\.\s*\S", ln)]
+            self.out.warn(
+                f"--answers has no entry for {domain}; the session is "
+                f"asking about: {', '.join(asked) or '(see the question above)'}. "
+                "Waiting for a stdin answer, or reply in the Devin UI.")
+            self._log(domain, {"from": "cli", "message":
+                               "warned: --answers missing domain "
+                               f"{domain} ({', '.join(asked)})"})
         answer = self._read_answer(domain, session_id)
         if answer is None:
             self.out.decision_external(domain, url)
@@ -182,20 +200,22 @@ class OperatorRelay:
         left the waiting state first (answered directly in the Devin UI)."""
         self.out.decision_prompt(domain)
         while True:
-            line = self.stdin_line(self.recheck_interval)
-            if line is not None:
-                line = line.strip()
-                if line:
-                    # the session may have been answered in the UI while we
-                    # were reading — don't double-send
-                    if not self._still_waiting(session_id):
-                        return None
-                    return line
-                if line == "":  # EOF — stdin closed
+            raw = self.stdin_line(self.recheck_interval)
+            if raw is None:  # timed out — re-check the session state
+                if not self._still_waiting(session_id):
                     return None
                 continue
+            if raw == "":  # EOF — stdin closed
+                return None
+            line = raw.strip()
+            if not line:  # a bare Enter is not an answer — ask again
+                self.out.decision_prompt(domain)
+                continue
+            # the session may have been answered in the UI while we were
+            # reading — don't double-send
             if not self._still_waiting(session_id):
                 return None
+            return line
 
     def _still_waiting(self, session_id):
         try:

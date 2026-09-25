@@ -135,23 +135,38 @@ class DevinClient:
         the session reports a waiting state — then re-arms once the session
         goes back to working, so a session may ask the operator more than
         once. The callback may answer via send_message and polling resumes.
+
+        The timeout bounds *Devin's* work, not the human's: time spent in a
+        waiting state (running/waiting_for_user, suspended/inactivity) does
+        not count against the deadline — an unanswered question can hold a
+        session open indefinitely without raising TimeoutError.
         """
-        deadline = time.monotonic() + timeout
+        start = time.monotonic()
+        waited = 0.0          # completed waiting episodes
+        waiting_since = None  # open waiting episode, if any
         waiting_armed = True
         while True:
+            now = time.monotonic()
             body = self.get_session(session_id)
             if self._terminal(body):
                 return body
             if on_tick:
                 on_tick(body)
+            is_waiting = self.waiting(body)
+            if is_waiting and waiting_since is None:
+                waiting_since = now
+            elif not is_waiting and waiting_since is not None:
+                waited += now - waiting_since
+                waiting_since = None
             if on_waiting:
-                if self.waiting(body) and waiting_armed:
+                if is_waiting and waiting_armed:
                     on_waiting(body)
                     waiting_armed = False
-                elif not self.waiting(body):
+                elif not is_waiting:
                     waiting_armed = True
-            if time.monotonic() >= deadline:
+            open_wait = (now - waiting_since) if waiting_since is not None else 0.0
+            if now - start - waited - open_wait >= timeout:
                 raise TimeoutError(
                     f"session {session_id} did not terminate within {timeout}s "
-                    f"(last status={body.get('status')!r})")
+                    f"of working time (last status={body.get('status')!r})")
             time.sleep(interval)
